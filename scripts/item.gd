@@ -2,7 +2,7 @@ extends RigidBody3D
 
 var item_name : String = ""
 
-func setup(name: String, color: Color) -> void:
+func setup(name: String, color: Color, despawn_time: float = 30.0) -> void:
 	item_name = name
 	collision_layer = 2
 	collision_mask  = 1
@@ -30,5 +30,5 @@ func setup(name: String, color: Color) -> void:
 	linear_velocity  = Vector3(randf_range(-1.5, 1.5), randf_range(2.0, 4.0), randf_range(-1.5, 1.5))
 	angular_velocity = Vector3(randf_range(-3, 3), randf_range(-3, 3), randf_range(-3, 3))
 
-	# 30초 후 자동 삭제
-	get_tree().create_timer(30.0).timeout.connect(queue_free)
+	# despawn_time 후 자동 삭제
+	get_tree().create_timer(despawn_time).timeout.connect(queue_free)

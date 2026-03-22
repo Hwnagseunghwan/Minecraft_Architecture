@@ -12,6 +12,7 @@ const ITEM_COLORS : Dictionary = {
 }
 
 const HOTBAR_SLOTS : int = 9
+const MAX_HP       : int = 20  # HP 2 = 하트 1개 (반쪽 하트 지원)
 const SLOT_SIZE    : int = 48
 const BORDER       : int = 3
 const GAP          : int = 4
@@ -69,6 +70,13 @@ func _build() -> void:
 
 	# 핫바 (아이템 슬롯, 하단 중앙)
 	_build_hotbar()
+
+	# 체력 하트
+	_build_hearts()
+	# 피격 플래시
+	_build_damage_flash()
+	# 사망 오버레이 (맨 위에 올라오도록 마지막에)
+	_build_death_overlay()
 
 func _build_block_panel() -> void:
 	_block_panel = Control.new()
@@ -182,6 +190,108 @@ func _refresh_hotbar(inv: Dictionary) -> void:
 
 func _on_inventory_changed(inv: Dictionary) -> void:
 	_refresh_hotbar(inv)
+
+# ── 체력 ───────────────────────────────────────────────
+# 하트 1개 = HP 2  /  반쪽 하트 = HP 1
+var _heart_left  : Array[ColorRect] = []   # 왼쪽 반 (HP 홀수 = 반칸)
+var _heart_right : Array[ColorRect] = []   # 오른쪽 반
+var _damage_flash  : ColorRect
+var _death_overlay : Control
+
+const HEART_FULL  : Color = Color(0.90, 0.10, 0.10)
+const HEART_EMPTY : Color = Color(0.25, 0.25, 0.25)
+
+func _build_hearts() -> void:
+	var container := Control.new()
+	container.set_anchors_preset(Control.PRESET_BOTTOM_LEFT)
+	container.position = Vector2(10, -(SLOT_SIZE + 115))
+	add_child(container)
+
+	for i in range(10):
+		var ox : float = i * 24.0
+		# 테두리
+		var border := ColorRect.new()
+		border.size     = Vector2(20, 20)
+		border.position = Vector2(ox, 0)
+		border.color    = Color(0.0, 0.0, 0.0, 0.7)
+		container.add_child(border)
+		# 왼쪽 반 하트
+		var left := ColorRect.new()
+		left.size     = Vector2(8, 16)
+		left.position = Vector2(ox + 2, 2)
+		left.color    = HEART_FULL
+		container.add_child(left)
+		_heart_left.append(left)
+		# 오른쪽 반 하트
+		var right := ColorRect.new()
+		right.size     = Vector2(8, 16)
+		right.position = Vector2(ox + 10, 2)
+		right.color    = HEART_FULL
+		container.add_child(right)
+		_heart_right.append(right)
+
+func _build_damage_flash() -> void:
+	_damage_flash = ColorRect.new()
+	_damage_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_damage_flash.color   = Color(0.85, 0.05, 0.05, 0.0)
+	_damage_flash.visible = true
+	add_child(_damage_flash)
+
+func _build_death_overlay() -> void:
+	_death_overlay = Control.new()
+	_death_overlay.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_death_overlay.visible = false
+	add_child(_death_overlay)
+
+	var bg := ColorRect.new()
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	bg.color = Color(0.0, 0.0, 0.0, 0.65)
+	_death_overlay.add_child(bg)
+
+	var died_lbl := Label.new()
+	died_lbl.text = "사망"
+	died_lbl.set_anchors_preset(Control.PRESET_CENTER)
+	died_lbl.position = Vector2(-55, -50)
+	died_lbl.add_theme_font_size_override("font_size", 64)
+	died_lbl.add_theme_color_override("font_color", Color(0.90, 0.10, 0.10))
+	died_lbl.add_theme_constant_override("outline_size", 4)
+	died_lbl.add_theme_color_override("font_outline_color", Color.BLACK)
+	_death_overlay.add_child(died_lbl)
+
+	var sub_lbl := Label.new()
+	sub_lbl.text = "3초 후 부활..."
+	sub_lbl.set_anchors_preset(Control.PRESET_CENTER)
+	sub_lbl.position = Vector2(-75, 20)
+	sub_lbl.add_theme_font_size_override("font_size", 22)
+	sub_lbl.add_theme_color_override("font_color", Color(0.90, 0.90, 0.90))
+	sub_lbl.add_theme_constant_override("outline_size", 2)
+	sub_lbl.add_theme_color_override("font_outline_color", Color.BLACK)
+	_death_overlay.add_child(sub_lbl)
+
+func _on_hp_changed(current_hp: int, _max_hp: int) -> void:
+	# 하트 i: 왼쪽 = HP >= i*2+1, 오른쪽 = HP >= i*2+2
+	for i in range(10):
+		_heart_left[i].color  = HEART_FULL if current_hp >= i * 2 + 1 else HEART_EMPTY
+		_heart_right[i].color = HEART_FULL if current_hp >= i * 2 + 2 else HEART_EMPTY
+	# 피격 플래시
+	if current_hp < MAX_HP:
+		_damage_flash.color = Color(0.85, 0.05, 0.05, 0.40)
+		var tw := create_tween()
+		tw.tween_property(_damage_flash, "color", Color(0.85, 0.05, 0.05, 0.0), 0.5)
+
+func _on_hp_healed(_current_hp: int, _max_hp: int) -> void:
+	_damage_flash.color = Color(1.0, 0.95, 0.0, 0.30)
+	var tw := create_tween()
+	tw.tween_property(_damage_flash, "color", Color(1.0, 0.95, 0.0, 0.0), 0.5)
+
+func _on_player_died() -> void:
+	_death_overlay.visible = true
+
+func _on_player_respawned() -> void:
+	_death_overlay.visible = false
+	for i in range(10):
+		_heart_left[i].color  = HEART_FULL
+		_heart_right[i].color = HEART_FULL
 
 var _mode_label : Label
 

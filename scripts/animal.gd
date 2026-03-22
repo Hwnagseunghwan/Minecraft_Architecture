@@ -20,6 +20,7 @@ var _target_y      : float = 0.0
 var hp             : int   = 3
 var _original_mats : Array = []
 var _is_dead       : bool  = false
+var _aggro         : bool  = false   # 공룡 전용: 플레이어 먼저 공격 시 true
 
 func setup(type: int) -> void:
 	animal_type = type
@@ -52,6 +53,9 @@ func take_damage() -> void:
 	if _is_dead:
 		return
 	hp -= 1
+	# 공룡: 플레이어가 먼저 공격하면 aggro 활성화
+	if animal_type == DINO:
+		_aggro = true
 	_flash_red()
 	if hp <= 0:
 		_die()
@@ -188,6 +192,7 @@ func _build_bird() -> void:
 func _build_dino() -> void:
 	_speed = 0.9
 	hp     = 10
+	add_to_group("dinosaurs")
 	# 몸통
 	_add_box(Vector3( 0.00, 1.40,  0.00), Vector3(1.70, 1.20, 2.40), Color(0.20, 0.42, 0.12)) # 몸
 	# 꼬리

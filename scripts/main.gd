@@ -35,6 +35,10 @@ func _ready() -> void:
 	player.block_selected.connect(ui._on_block_selected)
 	player.inventory_changed.connect(ui._on_inventory_changed)
 	player.mode_changed.connect(ui._on_mode_changed)
+	player.hp_changed.connect(ui._on_hp_changed)
+	player.hp_healed.connect(ui._on_hp_healed)
+	player.player_died.connect(ui._on_player_died)
+	player.player_respawned.connect(ui._on_player_respawned)
 
 func _process(delta: float) -> void:
 	_time = fmod(_time + delta / DAY_LENGTH, 1.0)

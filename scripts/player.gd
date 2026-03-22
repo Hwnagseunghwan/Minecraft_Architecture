@@ -6,11 +6,33 @@ const GRAVITY    = 20.0
 const MOUSE_SENS = 0.003
 const BREAK_TIME : float = 1.5
 
+const ITEM_DROP_COLORS : Dictionary = {
+	"Feather":      Color(0.95, 0.93, 0.88),
+	"ChickenMeat":  Color(0.85, 0.45, 0.35),
+	"Leather":      Color(0.55, 0.35, 0.18),
+	"BeefMeat":     Color(0.80, 0.30, 0.25),
+	"RawFish":      Color(1.00, 0.50, 0.10),
+	"Egg":          Color(0.96, 0.92, 0.78),
+	"DinosaurClaw": Color(0.55, 0.55, 0.20),
+}
+
 const SELECTABLE_BTYPES : Array[int] = [0,1,2,3,4,5,6,7,9,10,11,12]
 const BLOCK_NAMES : Array[String] = [
 	"Grass","Dirt","Stone","Log","Plank","Glass","White","Red",
 	"Brick","Concrete","Wood","Roof"
 ]
+
+# ── 체력 ───────────────────────────────────────────────
+const MAX_HP     : int   = 20     # 하트 10개 × 2 = 20
+const DAMAGE_CD  : float = 1.5   # 피격 쿨다운 (초)
+const HEAL_DELAY : float = 5.0   # 마지막 피격 후 회복 시작 대기
+const HEAL_RATE  : float = 1.0   # 회복 간격 (1초마다 HP +1)
+
+var hp           : int   = MAX_HP
+var _dmg_timer   : float = 0.0
+var _heal_delay  : float = 0.0
+var _heal_timer  : float = 0.0
+var _is_dead     : bool  = false
 
 var world        : Node3D = null
 var selected_idx : int    = 0
@@ -27,6 +49,10 @@ var _club_root   : Node3D  = null
 signal block_selected(idx: int, block_name: String)
 signal inventory_changed(inv: Dictionary)
 signal mode_changed(is_combat: bool)
+signal hp_changed(current_hp: int, max_hp: int)
+signal hp_healed(current_hp: int, max_hp: int)
+signal player_died()
+signal player_respawned()
 
 @onready var head     : Node3D    = $Head
 @onready var camera   : Camera3D  = $Head/Camera3D
@@ -35,36 +61,33 @@ var attack_ray : RayCast3D = null
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
-	# 동물 공격용 레이캐스트 (3블록 범위)
+	# 초기 HP 상태 UI에 전달 (1프레임 뒤에 시그널 연결 완료 후 emit)
+	call_deferred("_emit_initial_hp")
 	attack_ray = RayCast3D.new()
 	attack_ray.name = "AttackRay"
 	attack_ray.target_position = Vector3(0, 0, -9)
 	attack_ray.collision_mask = 1
 	attack_ray.enabled = true
 	camera.add_child(attack_ray)
-	# 몽둥이 생성
 	_build_club()
 
 func _build_club() -> void:
 	_club_root = Node3D.new()
-	_club_root.position        = Vector3(0.38, -0.28, -0.52)
+	_club_root.position         = Vector3(0.38, -0.28, -0.52)
 	_club_root.rotation_degrees = Vector3(10.0, -12.0, -18.0)
-	_club_root.visible         = false
+	_club_root.visible          = false
 	camera.add_child(_club_root)
 
-	# 손잡이 (얇은 막대)
 	var handle := MeshInstance3D.new()
 	var hm     := BoxMesh.new()
 	hm.size = Vector3(0.06, 0.06, 0.36)
 	handle.mesh = hm
 	var mat_h := StandardMaterial3D.new()
-	mat_h.albedo_color  = Color(0.52, 0.32, 0.10)
-	mat_h.shading_mode  = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mat_h.albedo_color = Color(0.52, 0.32, 0.10)
+	mat_h.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	handle.material_override = mat_h
-	handle.position = Vector3(0.0, 0.0, 0.0)
 	_club_root.add_child(handle)
 
-	# 머리 (굵은 블록)
 	var head_mesh := MeshInstance3D.new()
 	var bm        := BoxMesh.new()
 	bm.size = Vector3(0.13, 0.13, 0.20)
@@ -76,13 +99,15 @@ func _build_club() -> void:
 	head_mesh.position = Vector3(0.0, 0.0, -0.26)
 	_club_root.add_child(head_mesh)
 
+func _emit_initial_hp() -> void:
+	hp_changed.emit(hp, MAX_HP)
+
 func _get_btype() -> int:
 	return SELECTABLE_BTYPES[selected_idx]
 
 func _toggle_mode() -> void:
 	_combat_mode = not _combat_mode
 	_club_root.visible = _combat_mode
-	# 건축 모드로 돌아오면 파괴 상태 초기화
 	if not _combat_mode:
 		_breaking    = false
 		_break_timer = 0.0
@@ -91,14 +116,89 @@ func _toggle_mode() -> void:
 			world.set_crack(Vector3i.ZERO, 0.0)
 	mode_changed.emit(_combat_mode)
 
+# ── 체력 시스템 ────────────────────────────────────────
+func _take_damage(amount: int) -> void:
+	if _is_dead:
+		return
+	hp = maxi(hp - amount, 0)
+	_heal_delay = HEAL_DELAY
+	_heal_timer = HEAL_RATE
+	hp_changed.emit(hp, MAX_HP)
+	if hp <= 0:
+		_die()
+
+func _die() -> void:
+	_is_dead = true
+	velocity  = Vector3.ZERO
+	_drop_inventory()
+	player_died.emit()
+	get_tree().create_timer(3.0).timeout.connect(_respawn)
+
+func _drop_inventory() -> void:
+	if inventory.is_empty():
+		return
+	var item_script := load("res://scripts/item.gd")
+	for iname in inventory:
+		var count : int   = inventory[iname]
+		var col   : Color = ITEM_DROP_COLORS.get(iname, Color(0.7, 0.7, 0.7))
+		for _i in range(mini(count, 6)):  # 한 종류당 최대 6개
+			var item = item_script.new()
+			get_parent().add_child(item)
+			var offset := Vector3(randf_range(-1.5, 1.5), 0.5, randf_range(-1.5, 1.5))
+			item.global_position = global_position + offset
+			item.call("setup", iname, col, 60.0)  # 1분 후 사라짐
+	inventory.clear()
+	inventory_changed.emit(inventory)
+
+func _respawn() -> void:
+	hp           = MAX_HP
+	_is_dead     = false
+	_dmg_timer   = 0.0
+	_heal_delay  = 0.0
+	_heal_timer  = 0.0
+	global_position = Vector3(32.0, 5.0, 32.0)
+	velocity     = Vector3.ZERO
+	hp_changed.emit(hp, MAX_HP)
+	player_respawned.emit()
+
+func _check_dino_damage(delta: float) -> void:
+	_dmg_timer -= delta
+	if _dmg_timer > 0.0:
+		return
+	var dinos := get_tree().get_nodes_in_group("dinosaurs")
+	for dino in dinos:
+		if not is_instance_valid(dino):
+			continue
+		# 플레이어가 먼저 공격(aggro)한 공룡만 반격
+		if not bool(dino.get("_aggro")):
+			continue
+		var dist : float = global_position.distance_to(dino.global_position)
+		if dist < 3.5:
+			_take_damage(5)  # 2.5 하트 (HP 2 = 하트 1개)
+			_dmg_timer = DAMAGE_CD
+			return
+
+func _update_heal(delta: float) -> void:
+	if _is_dead or hp >= MAX_HP:
+		return
+	if _heal_delay > 0.0:
+		_heal_delay -= delta
+		return
+	_heal_timer -= delta
+	if _heal_timer <= 0.0:
+		hp = mini(hp + 1, MAX_HP)
+		_heal_timer = HEAL_RATE
+		hp_changed.emit(hp, MAX_HP)
+		hp_healed.emit(hp, MAX_HP)
+
 func _input(event: InputEvent) -> void:
-	# 마우스 시점
+	if _is_dead:
+		return
 	if event is InputEventMouseMotion and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		rotate_y(-event.relative.x * MOUSE_SENS)
 		head.rotate_x(-event.relative.y * MOUSE_SENS)
 		head.rotation.x = clamp(head.rotation.x, -PI / 2.0, PI / 2.0)
 
-	# 키보드
 	if event is InputEventKey and event.pressed and not event.echo:
 		match event.keycode:
 			KEY_1: _select(0)
@@ -122,16 +222,13 @@ func _input(event: InputEvent) -> void:
 				else:
 					Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
-	# 마우스 클릭
 	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_LEFT:
 				if _combat_mode:
-					# 전투 모드: 좌클릭 = 공격 + 스윙 모션
 					if event.pressed:
 						_swing_attack()
 				else:
-					# 건축 모드: 좌클릭 꾹 = 블록 파괴
 					if event.pressed:
 						_breaking = true
 					else:
@@ -158,12 +255,10 @@ func _swing_attack() -> void:
 	if _swinging:
 		return
 	_swinging = true
-	# 판정 먼저
 	if attack_ray.is_colliding():
 		var collider := attack_ray.get_collider()
 		if collider != null and collider.has_method("take_damage"):
 			collider.take_damage()
-	# 스윙 애니메이션 (Tween)
 	var tw := create_tween()
 	tw.tween_property(_club_root, "rotation_degrees",
 		Vector3(-50.0, -12.0, -18.0), 0.10)
@@ -172,6 +267,9 @@ func _swing_attack() -> void:
 	tw.tween_callback(func(): _swinging = false)
 
 func _physics_process(delta: float) -> void:
+	if _is_dead:
+		return
+
 	if not is_on_floor():
 		velocity.y -= GRAVITY * delta
 
@@ -194,8 +292,9 @@ func _physics_process(delta: float) -> void:
 	if not _combat_mode:
 		_update_breaking(delta)
 	_collect_nearby_items()
+	_check_dino_damage(delta)
+	_update_heal(delta)
 
-# ── 레이캐스트 ─────────────────────────────────────────
 func _get_target() -> Dictionary:
 	if not ray_cast.is_colliding():
 		return {}
