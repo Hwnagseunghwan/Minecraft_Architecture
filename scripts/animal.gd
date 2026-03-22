@@ -6,6 +6,10 @@ const CHICKEN = 0
 const COW     = 1
 const FISH    = 2
 const BIRD    = 3
+const DINO    = 4
+
+const MAP_MIN : float = 2.0
+const MAP_MAX : float = 62.0
 
 var animal_type    : int   = CHICKEN
 var _speed         : float = 1.2
@@ -25,6 +29,10 @@ func setup(type: int) -> void:
 func _new_dir() -> void:
 	var angle := randf() * TAU
 	_dir = Vector3(cos(angle), 0.0, sin(angle)).normalized()
+
+func _dir_to_center() -> void:
+	var to_c := Vector3(32.0, 0.0, 32.0) - Vector3(global_position.x, 0.0, global_position.z)
+	_dir = to_c.normalized()
 
 func _add_box(pos: Vector3, size: Vector3, color: Color) -> void:
 	var mi  := MeshInstance3D.new()
@@ -76,22 +84,24 @@ func _drop_loot() -> void:
 	var loot : Array = []
 	match animal_type:
 		CHICKEN:
-			loot = [{"name": "Feather",    "color": Color(0.95, 0.93, 0.88)},
-					{"name": "ChickenMeat", "color": Color(0.85, 0.45, 0.35)}]
+			loot = [{"name": "Feather",      "color": Color(0.95, 0.93, 0.88)},
+					{"name": "ChickenMeat",  "color": Color(0.85, 0.45, 0.35)}]
 		COW:
-			loot = [{"name": "Leather",    "color": Color(0.55, 0.35, 0.18)},
-					{"name": "BeefMeat",   "color": Color(0.80, 0.30, 0.25)}]
+			loot = [{"name": "Leather",      "color": Color(0.55, 0.35, 0.18)},
+					{"name": "BeefMeat",     "color": Color(0.80, 0.30, 0.25)}]
 		FISH:
-			loot = [{"name": "RawFish",    "color": Color(1.00, 0.50, 0.10)}]
+			loot = [{"name": "RawFish",      "color": Color(1.00, 0.50, 0.10)}]
 		BIRD:
-			loot = [{"name": "Feather",    "color": Color(0.28, 0.55, 0.90)},
-					{"name": "Egg",        "color": Color(0.96, 0.92, 0.78)}]
-	var drop_count : int = randi_range(1, 2)
+			loot = [{"name": "Feather",      "color": Color(0.28, 0.55, 0.90)},
+					{"name": "Egg",          "color": Color(0.96, 0.92, 0.78)}]
+		DINO:
+			loot = [{"name": "DinosaurClaw", "color": Color(0.55, 0.55, 0.20)}]
+	var drop_count : int = randi_range(1, 2) if animal_type != DINO else randi_range(2, 4)
 	for i in range(drop_count):
 		var entry : Dictionary = loot[randi() % loot.size()]
 		var item = item_script.new()
 		get_parent().add_child(item)
-		item.global_position = global_position + Vector3(0, 0.5, 0)
+		item.global_position = global_position + Vector3(0, 1.0, 0)
 		var col : Color = entry["color"]
 		item.call("setup", entry["name"] as String, col)
 
@@ -99,20 +109,19 @@ func _spawn_particles() -> void:
 	var p := CPUParticles3D.new()
 	get_parent().add_child(p)
 	p.global_position = global_position + Vector3(0, 0.5, 0)
-	p.emitting          = true
-	p.amount            = 24
-	p.lifetime          = 0.9
-	p.one_shot          = true
-	p.explosiveness     = 1.0
-	p.direction         = Vector3(0, 1, 0)
-	p.spread            = 180.0
-	p.gravity           = Vector3(0, -12.0, 0)
-	p.initial_velocity_min = 2.5
-	p.initial_velocity_max = 5.0
-	p.scale_amount_min  = 0.08
-	p.scale_amount_max  = 0.18
-	p.color             = Color(1.0, 0.35, 0.1)
-	# 파티클 종료 후 자동 제거
+	p.emitting             = true
+	p.amount               = 24 if animal_type != DINO else 60
+	p.lifetime             = 0.9
+	p.one_shot             = true
+	p.explosiveness        = 1.0
+	p.direction            = Vector3(0, 1, 0)
+	p.spread               = 180.0
+	p.gravity              = Vector3(0, -12.0, 0)
+	p.initial_velocity_min = 2.5 if animal_type != DINO else 5.0
+	p.initial_velocity_max = 5.0 if animal_type != DINO else 10.0
+	p.scale_amount_min     = 0.08
+	p.scale_amount_max     = 0.18
+	p.color                = Color(0.20, 0.55, 0.10) if animal_type == DINO else Color(1.0, 0.35, 0.1)
 	var timer := get_tree().create_timer(1.5)
 	timer.timeout.connect(p.queue_free)
 
@@ -126,12 +135,12 @@ func _add_collision(size: Vector3) -> void:
 # ── 닭 ────────────────────────────────────────────────
 func _build_chicken() -> void:
 	_speed = 1.0
-	_add_box(Vector3(0,    0.35,  0.00), Vector3(0.40, 0.38, 0.50), Color(0.95, 0.93, 0.88)) # 몸
-	_add_box(Vector3(0,    0.68,  0.14), Vector3(0.30, 0.28, 0.28), Color(0.95, 0.93, 0.88)) # 머리
-	_add_box(Vector3(0,    0.64,  0.30), Vector3(0.10, 0.08, 0.12), Color(1.00, 0.70, 0.05)) # 부리
-	_add_box(Vector3(0,    0.82,  0.14), Vector3(0.08, 0.12, 0.08), Color(0.90, 0.15, 0.15)) # 볏
-	_add_box(Vector3(-0.10, 0.08, 0.00), Vector3(0.07, 0.22, 0.07), Color(1.00, 0.60, 0.05)) # 왼다리
-	_add_box(Vector3( 0.10, 0.08, 0.00), Vector3(0.07, 0.22, 0.07), Color(1.00, 0.60, 0.05)) # 오른다리
+	_add_box(Vector3(0,     0.35,  0.00), Vector3(0.40, 0.38, 0.50), Color(0.95, 0.93, 0.88)) # 몸
+	_add_box(Vector3(0,     0.68,  0.14), Vector3(0.30, 0.28, 0.28), Color(0.95, 0.93, 0.88)) # 머리
+	_add_box(Vector3(0,     0.64,  0.30), Vector3(0.10, 0.08, 0.12), Color(1.00, 0.70, 0.05)) # 부리
+	_add_box(Vector3(0,     0.82,  0.14), Vector3(0.08, 0.12, 0.08), Color(0.90, 0.15, 0.15)) # 볏
+	_add_box(Vector3(-0.10, 0.08,  0.00), Vector3(0.07, 0.22, 0.07), Color(1.00, 0.60, 0.05)) # 왼다리
+	_add_box(Vector3( 0.10, 0.08,  0.00), Vector3(0.07, 0.22, 0.07), Color(1.00, 0.60, 0.05)) # 오른다리
 	_add_collision(Vector3(0.40, 0.80, 0.40))
 
 # ── 소 ────────────────────────────────────────────────
@@ -152,8 +161,8 @@ func _build_cow() -> void:
 
 # ── 물고기 ─────────────────────────────────────────────
 func _build_fish() -> void:
-	_speed    = 1.8
-	_floating = true
+	_speed      = 1.8
+	_floating   = true
 	motion_mode = MOTION_MODE_FLOATING
 	_add_box(Vector3( 0.05, 0.00,  0.00), Vector3(0.48, 0.24, 0.18), Color(1.00, 0.50, 0.10)) # 몸
 	_add_box(Vector3(-0.28, 0.00,  0.00), Vector3(0.18, 0.30, 0.08), Color(1.00, 0.35, 0.05)) # 꼬리
@@ -164,8 +173,8 @@ func _build_fish() -> void:
 
 # ── 새 ────────────────────────────────────────────────
 func _build_bird() -> void:
-	_speed    = 4.0
-	_floating = true
+	_speed      = 4.0
+	_floating   = true
 	motion_mode = MOTION_MODE_FLOATING
 	_add_box(Vector3( 0.00,  0.00,  0.00), Vector3(0.28, 0.22, 0.36), Color(0.20, 0.45, 0.82)) # 몸
 	_add_box(Vector3( 0.00,  0.18,  0.20), Vector3(0.20, 0.20, 0.20), Color(0.16, 0.36, 0.72)) # 머리
@@ -175,12 +184,47 @@ func _build_bird() -> void:
 	_add_box(Vector3( 0.00, -0.08, -0.22), Vector3(0.16, 0.06, 0.18), Color(0.20, 0.45, 0.82)) # 꼬리
 	_add_collision(Vector3(0.55, 0.28, 0.38))
 
+# ── 공룡 (T-Rex 스타일) ────────────────────────────────
+func _build_dino() -> void:
+	_speed = 0.9
+	hp     = 10
+	# 몸통
+	_add_box(Vector3( 0.00, 1.40,  0.00), Vector3(1.70, 1.20, 2.40), Color(0.20, 0.42, 0.12)) # 몸
+	# 꼬리
+	_add_box(Vector3( 0.00, 1.20, -1.50), Vector3(0.90, 0.80, 1.10), Color(0.18, 0.38, 0.10)) # 꼬리
+	_add_box(Vector3( 0.00, 0.95, -2.30), Vector3(0.50, 0.50, 0.80), Color(0.16, 0.34, 0.09)) # 꼬리 끝
+	# 목
+	_add_box(Vector3( 0.00, 2.10,  0.90), Vector3(0.70, 0.85, 0.60), Color(0.22, 0.44, 0.12)) # 목
+	# 머리
+	_add_box(Vector3( 0.00, 2.35,  1.80), Vector3(1.00, 0.80, 1.10), Color(0.24, 0.46, 0.14)) # 머리
+	_add_box(Vector3( 0.00, 2.00,  2.10), Vector3(0.88, 0.38, 0.90), Color(0.19, 0.38, 0.10)) # 아래턱
+	# 이빨
+	_add_box(Vector3(-0.25, 2.16,  2.50), Vector3(0.08, 0.18, 0.08), Color(0.92, 0.90, 0.85)) # 이빨L
+	_add_box(Vector3( 0.25, 2.16,  2.50), Vector3(0.08, 0.18, 0.08), Color(0.92, 0.90, 0.85)) # 이빨R
+	# 눈
+	_add_box(Vector3(-0.42, 2.60,  2.10), Vector3(0.14, 0.14, 0.14), Color(0.90, 0.10, 0.05)) # 눈L
+	_add_box(Vector3( 0.42, 2.60,  2.10), Vector3(0.14, 0.14, 0.14), Color(0.90, 0.10, 0.05)) # 눈R
+	# 뒷다리 (굵고 길게)
+	_add_box(Vector3(-0.55, 0.62, -0.20), Vector3(0.45, 1.40, 0.45), Color(0.18, 0.40, 0.11)) # 뒷다리L
+	_add_box(Vector3( 0.55, 0.62, -0.20), Vector3(0.45, 1.40, 0.45), Color(0.18, 0.40, 0.11)) # 뒷다리R
+	# 발
+	_add_box(Vector3(-0.55, 0.16,  0.15), Vector3(0.45, 0.32, 0.70), Color(0.16, 0.36, 0.09)) # 발L
+	_add_box(Vector3( 0.55, 0.16,  0.15), Vector3(0.45, 0.32, 0.70), Color(0.16, 0.36, 0.09)) # 발R
+	# 발톱
+	_add_box(Vector3(-0.55, 0.08,  0.52), Vector3(0.12, 0.12, 0.22), Color(0.55, 0.55, 0.20)) # 발톱L
+	_add_box(Vector3( 0.55, 0.08,  0.52), Vector3(0.12, 0.12, 0.22), Color(0.55, 0.55, 0.20)) # 발톱R
+	# 앞팔 (T-Rex: 짧고 작게)
+	_add_box(Vector3(-0.62, 1.50,  0.80), Vector3(0.22, 0.45, 0.22), Color(0.18, 0.40, 0.11)) # 앞팔L
+	_add_box(Vector3( 0.62, 1.50,  0.80), Vector3(0.22, 0.45, 0.22), Color(0.18, 0.40, 0.11)) # 앞팔R
+	_add_collision(Vector3(1.70, 3.00, 2.40))
+
 func _build_mesh() -> void:
 	match animal_type:
 		CHICKEN: _build_chicken()
 		COW:     _build_cow()
 		FISH:    _build_fish()
 		BIRD:    _build_bird()
+		DINO:    _build_dino()
 
 func _physics_process(delta: float) -> void:
 	_timer -= delta
@@ -206,9 +250,9 @@ func _process_ground(delta: float) -> void:
 	move_and_slide()
 	if is_on_wall():
 		if is_on_floor():
-			velocity.y = 5.5  # 1블록 뛰어넘기
+			velocity.y = 5.5
 		else:
-			_new_dir()  # 공중에서 벽이면 방향 전환
+			_new_dir()
 
 func _process_floating(delta: float) -> void:
 	var bob    := sin(Time.get_ticks_msec() * 0.002) * 0.25
@@ -219,7 +263,10 @@ func _process_floating(delta: float) -> void:
 	move_and_slide()
 	if is_on_wall():
 		_new_dir()
-	# 새: 너무 높거나 낮으면 방향 전환
+	# 새: 맵 경계 안에서만 비행
 	if animal_type == BIRD:
 		if global_position.y > _target_y + 2.0 or global_position.y < _target_y - 2.0:
 			_new_dir()
+		if global_position.x < MAP_MIN or global_position.x > MAP_MAX or \
+		   global_position.z < MAP_MIN or global_position.z > MAP_MAX:
+			_dir_to_center()

@@ -34,6 +34,7 @@ func _ready() -> void:
 	# 시그널 연결
 	player.block_selected.connect(ui._on_block_selected)
 	player.inventory_changed.connect(ui._on_inventory_changed)
+	player.mode_changed.connect(ui._on_mode_changed)
 
 func _process(delta: float) -> void:
 	_time = fmod(_time + delta / DAY_LENGTH, 1.0)
@@ -99,3 +100,24 @@ func _setup_safety_floor() -> void:
 	body.add_child(cs)
 	body.position = Vector3(32, -2, 32)
 	add_child(body)
+	_setup_boundary_walls()
+
+func _setup_boundary_walls() -> void:
+	# 맵 64x64 경계에 투명 벽 (높이 30)
+	var walls : Array = [
+		[Vector3( 32.0, 15.0, -0.5), Vector3(66.0, 30.0,  1.0)],  # 북쪽
+		[Vector3( 32.0, 15.0, 64.5), Vector3(66.0, 30.0,  1.0)],  # 남쪽
+		[Vector3( -0.5, 15.0, 32.0), Vector3( 1.0, 30.0, 66.0)],  # 서쪽
+		[Vector3( 64.5, 15.0, 32.0), Vector3( 1.0, 30.0, 66.0)],  # 동쪽
+	]
+	for w in walls:
+		var wbody := StaticBody3D.new()
+		var wcs   := CollisionShape3D.new()
+		var wsh   := BoxShape3D.new()
+		var sz : Vector3 = w[1]
+		wsh.size = sz
+		wcs.shape = wsh
+		wbody.add_child(wcs)
+		var wp : Vector3 = w[0]
+		wbody.position = wp
+		add_child(wbody)
