@@ -4,25 +4,42 @@ const SPEED      = 5.0
 const JUMP_VEL   = 6.5
 const GRAVITY    = 20.0
 const MOUSE_SENS = 0.003
+const BREAK_TIME : float = 1.5
 
-var world: Node3D = null
-var selected_block: int = 0
+const SELECTABLE_BTYPES : Array[int] = [0,1,2,3,4,5,6,7,9,10,11,12]
+const BLOCK_NAMES : Array[String] = [
+	"Grass","Dirt","Stone","Log","Plank","Glass","White","Red",
+	"Brick","Concrete","Wood","Roof"
+]
 
-const BREAK_TIME: float = 1.5
-var _breaking: bool = false
-var _break_timer: float = 0.0
-var _break_pos: Vector3i = Vector3i(-999, -999, -999)
+var world        : Node3D = null
+var selected_idx : int    = 0
+var inventory    : Dictionary = {}
 
-const BLOCK_NAMES = ["Grass","Dirt","Stone","Log","Plank","Glass","White","Red"]
+var _breaking    : bool     = false
+var _break_timer : float    = 0.0
+var _break_pos   : Vector3i = Vector3i(-999, -999, -999)
 
-signal block_selected(block_name: String)
+signal block_selected(idx: int, block_name: String)
+signal inventory_changed(inv: Dictionary)
 
-@onready var head     : Node3D   = $Head
-@onready var camera   : Camera3D = $Head/Camera3D
+@onready var head     : Node3D    = $Head
+@onready var camera   : Camera3D  = $Head/Camera3D
 @onready var ray_cast : RayCast3D = $Head/Camera3D/RayCast3D
+var attack_ray : RayCast3D = null
 
 func _ready() -> void:
 	Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
+	# 동물 공격용 레이캐스트 (3블록 범위)
+	attack_ray = RayCast3D.new()
+	attack_ray.name = "AttackRay"
+	attack_ray.target_position = Vector3(0, 0, -9)
+	attack_ray.collision_mask = 1
+	attack_ray.enabled = true
+	camera.add_child(attack_ray)
+
+func _get_btype() -> int:
+	return SELECTABLE_BTYPES[selected_idx]
 
 func _input(event: InputEvent) -> void:
 	# 마우스 시점
@@ -68,17 +85,17 @@ func _input(event: InputEvent) -> void:
 						world.set_crack(Vector3i.ZERO, 0.0)
 			MOUSE_BUTTON_RIGHT:
 				if event.pressed:
-					_place_block()
+					_attack_or_place()
 			MOUSE_BUTTON_WHEEL_UP:
 				if event.pressed:
-					_select((selected_block - 1 + 8) % 8)
+					_select((selected_idx - 1 + SELECTABLE_BTYPES.size()) % SELECTABLE_BTYPES.size())
 			MOUSE_BUTTON_WHEEL_DOWN:
 				if event.pressed:
-					_select((selected_block + 1) % 8)
+					_select((selected_idx + 1) % SELECTABLE_BTYPES.size())
 
 func _select(idx: int) -> void:
-	selected_block = idx
-	block_selected.emit(BLOCK_NAMES[idx])
+	selected_idx = idx
+	block_selected.emit(idx, BLOCK_NAMES[idx])
 
 func _physics_process(delta: float) -> void:
 	if not is_on_floor():
@@ -101,6 +118,7 @@ func _physics_process(delta: float) -> void:
 	move_and_slide()
 	_update_highlight()
 	_update_breaking(delta)
+	_collect_nearby_items()
 
 # ── 레이캐스트 ─────────────────────────────────────────
 func _get_target() -> Dictionary:
@@ -130,7 +148,7 @@ func _update_breaking(delta: float) -> void:
 		_break_pos = Vector3i(-999, -999, -999)
 		world.set_crack(Vector3i.ZERO, 0.0)
 		return
-	var bp: Vector3i = t["block"]
+	var bp : Vector3i = t["block"]
 	if bp != _break_pos:
 		_break_pos = bp
 		_break_timer = 0.0
@@ -142,22 +160,39 @@ func _update_breaking(delta: float) -> void:
 		world.set_crack(Vector3i.ZERO, 0.0)
 		world.remove_block(_break_pos)
 
-func _remove_block() -> void:
-	if not world: return
-	var t := _get_target()
-	if not t.is_empty():
-		world.remove_block(t["block"])
+func _attack_or_place() -> void:
+	# 동물 공격: 3블록 범위 attack_ray로 먼저 확인
+	if attack_ray.is_colliding():
+		var collider := attack_ray.get_collider()
+		if collider != null and collider.has_method("take_damage"):
+			collider.take_damage()
+			return
+	# 동물이 아니면 기존 블록 배치
+	_place_block()
+
+func _collect_nearby_items() -> void:
+	var items := get_tree().get_nodes_in_group("items")
+	for item in items:
+		if not is_instance_valid(item):
+			continue
+		var dist : float = global_position.distance_to(item.global_position)
+		if dist < 1.8:
+			var raw = item.get("item_name")
+			var iname : String = str(raw) if raw != null else ""
+			if iname != "" and iname != "Null":
+				inventory[iname] = inventory.get(iname, 0) + 1
+				inventory_changed.emit(inventory)
+			item.queue_free()
 
 func _place_block() -> void:
 	if not world: return
 	var t := _get_target()
 	if t.is_empty(): return
 	var pp : Vector3i = t["place"]
-	# 플레이어 위치와 겹치는지 체크
-	var px := int(floor(global_position.x))
-	var pz := int(floor(global_position.z))
+	var px  := int(floor(global_position.x))
+	var pz  := int(floor(global_position.z))
 	var py0 := int(floor(global_position.y))
 	var py1 := py0 + 1
 	if pp.x == px and pp.z == pz and (pp.y == py0 or pp.y == py1):
 		return
-	world.place_block(pp, selected_block)
+	world.place_block(pp, _get_btype())
