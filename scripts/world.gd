@@ -27,9 +27,9 @@ const BLOCK_COLORS : Dictionary = {
 
 # 나뭇잎 3가지 초록 색조
 const LEAF_COLORS : Array = [
-	Color(0.16, 0.46, 0.09),   # 진한 초록
-	Color(0.28, 0.60, 0.18),   # 중간 초록
-	Color(0.40, 0.70, 0.28),   # 밝은 초록
+	Color(0.20, 0.85, 0.10),   # 진한 초록
+	Color(0.30, 0.90, 0.20),   # 중간 초록
+	Color(0.45, 0.95, 0.30),   # 밝은 초록
 ]
 
 var _blocks        : Dictionary = {}
@@ -48,6 +48,7 @@ func _make_mat(color: Color, transparent: bool = false) -> StandardMaterial3D:
 	var mat := StandardMaterial3D.new()
 	mat.albedo_color = color
 	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	if transparent:
 		mat.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
 	return mat
@@ -55,7 +56,7 @@ func _make_mat(color: Color, transparent: bool = false) -> StandardMaterial3D:
 func _get_grass_mesh() -> ArrayMesh:
 	if _grass_mesh != null:
 		return _grass_mesh
-	var mat_top  := _make_mat(Color(0.37, 0.73, 0.11))  # 마인크래프트 초록
+	var mat_top  := _make_mat(Color(0.20, 0.90, 0.15))  # 밝은 초록
 	var mat_side := _make_mat(Color(0.46, 0.32, 0.14))  # 흙빛 갈색
 	var mat_bot  := _make_mat(Color(0.50, 0.35, 0.18))  # 흙
 	var mesh := ArrayMesh.new()
