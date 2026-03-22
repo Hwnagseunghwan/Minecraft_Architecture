@@ -8,6 +8,11 @@ const MOUSE_SENS = 0.003
 var world: Node3D = null
 var selected_block: int = 0
 
+const BREAK_TIME: float = 1.5
+var _breaking: bool = false
+var _break_timer: float = 0.0
+var _break_pos: Vector3i = Vector3i(-999, -999, -999)
+
 const BLOCK_NAMES = ["Grass","Dirt","Stone","Log","Plank","Glass","White","Red"]
 
 signal block_selected(block_name: String)
@@ -50,16 +55,26 @@ func _input(event: InputEvent) -> void:
 					Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 
 	# 마우스 클릭
-	if event is InputEventMouseButton and event.pressed:
+	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_LEFT:
-				_remove_block()
+				if event.pressed:
+					_breaking = true
+				else:
+					_breaking = false
+					_break_timer = 0.0
+					_break_pos = Vector3i(-999, -999, -999)
+					if world:
+						world.set_crack(Vector3i.ZERO, 0.0)
 			MOUSE_BUTTON_RIGHT:
-				_place_block()
+				if event.pressed:
+					_place_block()
 			MOUSE_BUTTON_WHEEL_UP:
-				_select((selected_block - 1 + 8) % 8)
+				if event.pressed:
+					_select((selected_block - 1 + 8) % 8)
 			MOUSE_BUTTON_WHEEL_DOWN:
-				_select((selected_block + 1) % 8)
+				if event.pressed:
+					_select((selected_block + 1) % 8)
 
 func _select(idx: int) -> void:
 	selected_block = idx
@@ -85,6 +100,7 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 	_update_highlight()
+	_update_breaking(delta)
 
 # ── 레이캐스트 ─────────────────────────────────────────
 func _get_target() -> Dictionary:
@@ -104,6 +120,27 @@ func _update_highlight() -> void:
 	if not world: return
 	var t := _get_target()
 	world.set_highlight(t.get("block", Vector3i.ZERO), not t.is_empty())
+
+func _update_breaking(delta: float) -> void:
+	if not _breaking or not world:
+		return
+	var t := _get_target()
+	if t.is_empty():
+		_break_timer = 0.0
+		_break_pos = Vector3i(-999, -999, -999)
+		world.set_crack(Vector3i.ZERO, 0.0)
+		return
+	var bp: Vector3i = t["block"]
+	if bp != _break_pos:
+		_break_pos = bp
+		_break_timer = 0.0
+	_break_timer += delta
+	world.set_crack(_break_pos, _break_timer / BREAK_TIME)
+	if _break_timer >= BREAK_TIME:
+		_breaking = false
+		_break_timer = 0.0
+		world.set_crack(Vector3i.ZERO, 0.0)
+		world.remove_block(_break_pos)
 
 func _remove_block() -> void:
 	if not world: return
