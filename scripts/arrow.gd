@@ -1,34 +1,33 @@
-extends RigidBody3D
+extends CharacterBody3D
+## 석궁 화살 - CharacterBody3D 방식 (물리 충격량 없음)
 
+const GRAVITY  : float = 9.0
 const SPEED    : float = 45.0
 const LIFETIME : float = 6.0
 
-var _can_hit : bool = false
+var _vel    : Vector3 = Vector3.ZERO
+var _active : bool    = false
 
 func setup(from: Vector3, dir: Vector3) -> void:
-	global_position       = from
-	gravity_scale         = 0.30
-	contact_monitor       = true
-	max_contacts_reported = 4
-	linear_velocity       = dir * SPEED
+	global_position = from
+	_vel = dir * SPEED
 	_build_mesh()
-	body_entered.connect(_on_body_entered)
-	get_tree().create_timer(0.20).timeout.connect(_activate)
+	get_tree().create_timer(0.15).timeout.connect(func(): _active = true)
 	get_tree().create_timer(LIFETIME).timeout.connect(queue_free)
 
-func _activate() -> void:
-	_can_hit = true
-
-func _on_body_entered(body: Node) -> void:
-	if not _can_hit:
+func _physics_process(delta: float) -> void:
+	_vel.y -= GRAVITY * delta
+	var col : KinematicCollision3D = move_and_collide(_vel * delta)
+	if col != null:
+		if _active:
+			var body : Object = col.get_collider()
+			if body != null and body.has_method("take_damage"):
+				body.take_damage()
+		queue_free()
 		return
-	if body.has_method("take_damage"):
-		body.take_damage()
-	queue_free()
-
-func _physics_process(_delta: float) -> void:
-	if linear_velocity.length_squared() > 1.0:
-		var fwd : Vector3 = linear_velocity.normalized()
+	# 날아가는 방향으로 화살 회전
+	if _vel.length_squared() > 1.0:
+		var fwd : Vector3 = _vel.normalized()
 		if fwd.cross(Vector3.UP).length_squared() > 0.01:
 			look_at(global_position + fwd, Vector3.UP)
 
@@ -56,9 +55,9 @@ func _build_mesh() -> void:
 	tip.position = Vector3(0.0, 0.0, -0.30)
 	add_child(tip)
 
-	# 충돌 구체
+	# 충돌 구체 (새 맞추기 쉽도록 넉넉하게)
 	var cs := CollisionShape3D.new()
 	var sh := SphereShape3D.new()
-	sh.radius = 0.08
+	sh.radius = 0.35
 	cs.shape  = sh
 	add_child(cs)

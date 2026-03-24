@@ -31,6 +31,9 @@ func _ready() -> void:
 	ui.name = "UI"
 	add_child(ui)
 
+	# 석궁 연습장
+	_spawn_range()
+
 	# 시그널 연결
 	player.block_selected.connect(ui._on_block_selected)
 	player.inventory_changed.connect(ui._on_inventory_changed)
@@ -39,6 +42,28 @@ func _ready() -> void:
 	player.hp_healed.connect(ui._on_hp_healed)
 	player.player_died.connect(ui._on_player_died)
 	player.player_respawned.connect(ui._on_player_respawned)
+
+func _spawn_range() -> void:
+	# 석궁 연습장: 스폰(32,5,32) 기준 북동쪽 x=45 라인
+	# 표적 5개: 거리·높이 각각 다름
+	var target_script := preload("res://scripts/target.gd")
+
+	# [위치(x,z), 기둥높이]
+	var configs : Array = [
+		[Vector2(45, 52), 2],   # 근거리 낮음  (~22m)
+		[Vector2(45, 56), 2],   # 중거리 낮음  (~26m)
+		[Vector2(45, 60), 4],   # 중거리 높음  (~30m, 새 연습)
+		[Vector2(45, 48), 6],   # 근거리 높음  (~20m, 새 연습)
+		[Vector2(48, 54), 8],   # 고공 표적     (~24m, 최고 난이도)
+	]
+
+	for cfg in configs:
+		var xz     : Vector2 = cfg[0]
+		var pole_h : int     = cfg[1]
+		var t = target_script.new()
+		add_child(t)
+		t.call("build", pole_h)
+		t.global_position = Vector3(xz.x, 2.0, xz.y)
 
 func _process(delta: float) -> void:
 	_time = fmod(_time + delta / DAY_LENGTH, 1.0)
