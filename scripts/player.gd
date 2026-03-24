@@ -42,6 +42,8 @@ var _breaking    : bool     = false
 var _break_timer : float    = 0.0
 var _break_pos   : Vector3i = Vector3i(-999, -999, -999)
 
+var _step_timer  : float    = 0.0   # 발걸음 간격 타이머
+
 var _combat_mode : bool    = false
 var _swinging    : bool    = false
 var _club_root   : Node3D  = null
@@ -123,6 +125,7 @@ func _take_damage(amount: int) -> void:
 	hp = maxi(hp - amount, 0)
 	_heal_delay = HEAL_DELAY
 	_heal_timer = HEAL_RATE
+	SoundManager.play_hurt()
 	hp_changed.emit(hp, MAX_HP)
 	if hp <= 0:
 		_die()
@@ -130,6 +133,7 @@ func _take_damage(amount: int) -> void:
 func _die() -> void:
 	_is_dead = true
 	velocity  = Vector3.ZERO
+	SoundManager.play_die()
 	_drop_inventory()
 	player_died.emit()
 	get_tree().create_timer(3.0).timeout.connect(_respawn)
@@ -255,6 +259,7 @@ func _swing_attack() -> void:
 	if _swinging:
 		return
 	_swinging = true
+	SoundManager.play_swing()
 	if attack_ray.is_colliding():
 		var collider := attack_ray.get_collider()
 		if collider != null and collider.has_method("take_damage"):
@@ -294,6 +299,17 @@ func _physics_process(delta: float) -> void:
 	_collect_nearby_items()
 	_check_dino_damage(delta)
 	_update_heal(delta)
+	_update_footstep(delta)
+
+func _update_footstep(delta: float) -> void:
+	_step_timer -= delta
+	var moving := abs(velocity.x) > 0.5 or abs(velocity.z) > 0.5
+	if moving and is_on_floor():
+		if _step_timer <= 0.0:
+			SoundManager.play_step()
+			_step_timer = 0.40
+	else:
+		_step_timer = 0.0
 
 func _get_target() -> Dictionary:
 	if not ray_cast.is_colliding():
@@ -332,6 +348,7 @@ func _update_breaking(delta: float) -> void:
 		_breaking    = false
 		_break_timer = 0.0
 		world.set_crack(Vector3i.ZERO, 0.0)
+		SoundManager.play_dig()
 		world.remove_block(_break_pos)
 
 func _collect_nearby_items() -> void:
@@ -346,6 +363,7 @@ func _collect_nearby_items() -> void:
 			if iname != "" and iname != "Null":
 				inventory[iname] = inventory.get(iname, 0) + 1
 				inventory_changed.emit(inventory)
+				SoundManager.play_pickup()
 			item.queue_free()
 
 func _place_block() -> void:
@@ -359,4 +377,5 @@ func _place_block() -> void:
 	var py1 := py0 + 1
 	if pp.x == px and pp.z == pz and (pp.y == py0 or pp.y == py1):
 		return
-	world.place_block(pp, _get_btype())
+	if world.place_block(pp, _get_btype()):
+		SoundManager.play_place()

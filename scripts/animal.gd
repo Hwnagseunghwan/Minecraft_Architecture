@@ -22,8 +22,11 @@ var _original_mats : Array = []
 var _is_dead       : bool  = false
 var _aggro         : bool  = false   # 공룡 전용: 플레이어 먼저 공격 시 true
 
+var _sound_timer   : float = 0.0    # 울음 간격 타이머
+
 func setup(type: int) -> void:
-	animal_type = type
+	animal_type  = type
+	_sound_timer = randf_range(3.0, 10.0)  # 스폰 직후 동시 울음 방지
 	_build_mesh()
 	_new_dir()
 
@@ -236,6 +239,14 @@ func _physics_process(delta: float) -> void:
 	if _timer <= 0.0:
 		_timer = randf_range(2.5, 6.0)
 		_new_dir()
+
+	# 울음소리 (닭/소/공룡만, 물고기/새는 조용히)
+	_sound_timer -= delta
+	if _sound_timer <= 0.0:
+		var interval := 8.0 if animal_type == DINO else randf_range(5.0, 12.0)
+		_sound_timer = interval
+		if animal_type == CHICKEN or animal_type == COW or animal_type == DINO:
+			SoundManager.play_animal(animal_type)
 
 	if _floating:
 		_process_floating(delta)
