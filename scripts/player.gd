@@ -44,13 +44,17 @@ var _break_pos   : Vector3i = Vector3i(-999, -999, -999)
 
 var _step_timer  : float    = 0.0   # 발걸음 간격 타이머
 
-var _combat_mode : bool    = false
-var _swinging    : bool    = false
-var _club_root   : Node3D  = null
+var _mode          : int    = 0      # 0=건축  1=몽둥이  2=석궁
+var _swinging      : bool   = false
+var _club_root     : Node3D = null
+var _crossbow_root : Node3D = null
+var _arrow_cd      : float  = 0.0   # 석궁 쿨다운
+
+const ARROW_CD : float = 0.8
 
 signal block_selected(idx: int, block_name: String)
 signal inventory_changed(inv: Dictionary)
-signal mode_changed(is_combat: bool)
+signal mode_changed(mode: int)
 signal hp_changed(current_hp: int, max_hp: int)
 signal hp_healed(current_hp: int, max_hp: int)
 signal player_died()
@@ -72,6 +76,7 @@ func _ready() -> void:
 	attack_ray.enabled = true
 	camera.add_child(attack_ray)
 	_build_club()
+	_build_crossbow()
 
 func _build_club() -> void:
 	_club_root = Node3D.new()
@@ -101,6 +106,36 @@ func _build_club() -> void:
 	head_mesh.position = Vector3(0.0, 0.0, -0.26)
 	_club_root.add_child(head_mesh)
 
+func _build_crossbow() -> void:
+	_crossbow_root = Node3D.new()
+	_crossbow_root.position         = Vector3(0.32, -0.22, -0.55)
+	_crossbow_root.rotation_degrees = Vector3(0.0, -10.0, -5.0)
+	_crossbow_root.visible          = false
+	camera.add_child(_crossbow_root)
+
+	# 스톡 (손잡이)
+	var stock := MeshInstance3D.new()
+	var sm    := BoxMesh.new()
+	sm.size   = Vector3(0.06, 0.06, 0.42)
+	stock.mesh = sm
+	var mat1  := StandardMaterial3D.new()
+	mat1.albedo_color = Color(0.42, 0.26, 0.10)
+	mat1.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	stock.material_override = mat1
+	_crossbow_root.add_child(stock)
+
+	# 활 팔 (가로 막대)
+	var arm  := MeshInstance3D.new()
+	var am   := BoxMesh.new()
+	am.size  = Vector3(0.38, 0.05, 0.04)
+	arm.mesh = am
+	var mat2 := StandardMaterial3D.new()
+	mat2.albedo_color = Color(0.28, 0.18, 0.07)
+	mat2.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	arm.material_override = mat2
+	arm.position = Vector3(0.0, 0.04, -0.14)
+	_crossbow_root.add_child(arm)
+
 func _emit_initial_hp() -> void:
 	hp_changed.emit(hp, MAX_HP)
 
@@ -108,15 +143,16 @@ func _get_btype() -> int:
 	return SELECTABLE_BTYPES[selected_idx]
 
 func _toggle_mode() -> void:
-	_combat_mode = not _combat_mode
-	_club_root.visible = _combat_mode
-	if not _combat_mode:
+	_mode = (_mode + 1) % 3
+	_club_root.visible     = (_mode == 1)
+	_crossbow_root.visible = (_mode == 2)
+	if _mode == 0:
 		_breaking    = false
 		_break_timer = 0.0
 		_break_pos   = Vector3i(-999, -999, -999)
 		if world:
 			world.set_crack(Vector3i.ZERO, 0.0)
-	mode_changed.emit(_combat_mode)
+	mode_changed.emit(_mode)
 
 # ── 체력 시스템 ────────────────────────────────────────
 func _take_damage(amount: int) -> void:
@@ -229,10 +265,10 @@ func _input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
 		match event.button_index:
 			MOUSE_BUTTON_LEFT:
-				if _combat_mode:
+				if _mode == 1:
 					if event.pressed:
 						_swing_attack()
-				else:
+				elif _mode == 0:
 					if event.pressed:
 						_breaking = true
 					else:
@@ -242,8 +278,11 @@ func _input(event: InputEvent) -> void:
 						if world:
 							world.set_crack(Vector3i.ZERO, 0.0)
 			MOUSE_BUTTON_RIGHT:
-				if event.pressed and not _combat_mode:
-					_place_block()
+				if event.pressed:
+					if _mode == 0:
+						_place_block()
+					elif _mode == 2:
+						_shoot_arrow()
 			MOUSE_BUTTON_WHEEL_UP:
 				if event.pressed:
 					_select((selected_idx - 1 + SELECTABLE_BTYPES.size()) % SELECTABLE_BTYPES.size())
@@ -294,12 +333,26 @@ func _physics_process(delta: float) -> void:
 
 	move_and_slide()
 	_update_highlight()
-	if not _combat_mode:
+	if _mode == 0:
 		_update_breaking(delta)
 	_collect_nearby_items()
 	_check_dino_damage(delta)
 	_update_heal(delta)
 	_update_footstep(delta)
+	if _arrow_cd > 0.0:
+		_arrow_cd -= delta
+
+func _shoot_arrow() -> void:
+	if _arrow_cd > 0.0:
+		return
+	_arrow_cd = ARROW_CD
+	var arrow_script := load("res://scripts/arrow.gd")
+	var arrow        = arrow_script.new()
+	get_parent().add_child(arrow)
+	var dir  : Vector3 = -camera.global_transform.basis.z.normalized()
+	var from : Vector3 = camera.global_position + dir * 0.8
+	arrow.call("setup", from, dir)
+	SoundManager.play_shoot()
 
 func _update_footstep(delta: float) -> void:
 	_step_timer -= delta

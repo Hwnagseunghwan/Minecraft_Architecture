@@ -25,6 +25,7 @@ func _build_all() -> void:
 	_cache["chicken"] = _make(0.26, _wave_chicken)
 	_cache["cow"]     = _make(0.50, _wave_cow)
 	_cache["dino"]    = _make(0.60, _wave_dino)
+	_cache["shoot"]   = _make(0.18, _wave_shoot)
 
 func _make(dur: float, fn: Callable) -> AudioStreamWAV:
 	var n   : int   = int(RATE * dur)
@@ -58,6 +59,7 @@ func play_hurt()   -> void: _play("hurt",    0.0)
 func play_die()    -> void: _play("die",     2.0)
 func play_pickup() -> void: _play("pickup", -2.0)
 func play_swing()  -> void: _play("swing",  -6.0)
+func play_shoot()  -> void: _play("shoot",  -3.0)
 func play_animal(t: int) -> void:
 	if   t == 0: _play("chicken", -4.0)
 	elif t == 1: _play("cow",     -3.0)
@@ -144,6 +146,19 @@ func _wave_cow(n: int) -> PackedFloat32Array:
 		var e   : float = (1.0 - exp(-t * 6.0)) * exp(-t * 3.0)
 		var vib : float = sin(TAU * 4.0 * t) * 8.0
 		s[i] = sin(TAU * (115.0 + vib) * t) * e * 0.6
+	return s
+
+func _wave_shoot(n: int) -> PackedFloat32Array:
+	# 석궁 발사: 짧은 "퉁" + 휘파람
+	var s     := PackedFloat32Array()
+	var phase : float = 0.0
+	s.resize(n)
+	for i in range(n):
+		var t   : float = float(i) / float(RATE)
+		var thunk : float = exp(-t * 40.0) * randf_range(-0.5, 0.5)
+		var whoosh : float = sin(TAU * phase) * exp(-t * 12.0) * 0.4
+		phase += (400.0 - t * 500.0) / float(RATE)
+		s[i] = thunk * 0.5 + whoosh
 	return s
 
 func _wave_dino(n: int) -> PackedFloat32Array:

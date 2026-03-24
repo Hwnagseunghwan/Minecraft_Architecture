@@ -306,13 +306,17 @@ func _build_mode_indicator() -> void:
 	_mode_label.add_theme_color_override("font_outline_color", Color.BLACK)
 	add_child(_mode_label)
 
-func _on_mode_changed(is_combat: bool) -> void:
-	if is_combat:
-		_mode_label.text = "[ 전투 모드 ]  F키: 전환"
-		_mode_label.add_theme_color_override("font_color", Color(1.0, 0.35, 0.35))
-	else:
-		_mode_label.text = "[ 건축 모드 ]  F키: 전환"
-		_mode_label.add_theme_color_override("font_color", Color(0.4, 0.9, 1.0))
+func _on_mode_changed(mode: int) -> void:
+	match mode:
+		0:
+			_mode_label.text = "[ 건축 모드 ]  F키: 전환"
+			_mode_label.add_theme_color_override("font_color", Color(0.4, 0.9, 1.0))
+		1:
+			_mode_label.text = "[ 전투-몽둥이 ]  F키: 전환"
+			_mode_label.add_theme_color_override("font_color", Color(1.0, 0.35, 0.35))
+		2:
+			_mode_label.text = "[ 전투-석궁 ]  우클릭:발사  F키: 전환"
+			_mode_label.add_theme_color_override("font_color", Color(1.0, 0.75, 0.20))
 
 func _on_block_selected(_idx: int, block_name: String) -> void:
 	_block_selector_label.text = "[ " + block_name + " ]"
