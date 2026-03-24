@@ -44,11 +44,13 @@ var _break_pos   : Vector3i = Vector3i(-999, -999, -999)
 
 var _step_timer  : float    = 0.0   # 발걸음 간격 타이머
 
-var _mode          : int    = 0      # 0=건축  1=몽둥이  2=석궁
+var _mode          : int    = 0      # 0=건축  1=몽둥이  2=석궁  3=포탈지팡이
 var _swinging      : bool   = false
 var _club_root     : Node3D = null
 var _crossbow_root : Node3D = null
+var _wand_root     : Node3D = null
 var _arrow_cd      : float  = 0.0   # 석궁 쿨다운
+var portal_return_pos : Vector3 = Vector3(32.0, 5.0, 32.0)  # 포탈 귀환 좌표
 
 const ARROW_CD : float = 0.8
 
@@ -77,6 +79,7 @@ func _ready() -> void:
 	camera.add_child(attack_ray)
 	_build_club()
 	_build_crossbow()
+	_build_wand()
 
 func _build_club() -> void:
 	_club_root = Node3D.new()
@@ -136,6 +139,34 @@ func _build_crossbow() -> void:
 	arm.position = Vector3(0.0, 0.04, -0.14)
 	_crossbow_root.add_child(arm)
 
+func _build_wand() -> void:
+	_wand_root = Node3D.new()
+	_wand_root.position         = Vector3(0.30, -0.28, -0.50)
+	_wand_root.rotation_degrees = Vector3(-10.0, -15.0, -20.0)
+	_wand_root.visible          = false
+	camera.add_child(_wand_root)
+	# 지팡이 몸통 (보라)
+	var stick  := MeshInstance3D.new()
+	var sm     := BoxMesh.new()
+	sm.size    = Vector3(0.05, 0.05, 0.38)
+	stick.mesh = sm
+	var mat1   := StandardMaterial3D.new()
+	mat1.albedo_color = Color(0.38, 0.15, 0.55)
+	mat1.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	stick.material_override = mat1
+	_wand_root.add_child(stick)
+	# 끝 구슬 (밝은 보라)
+	var orb  := MeshInstance3D.new()
+	var om   := BoxMesh.new()
+	om.size  = Vector3(0.10, 0.10, 0.10)
+	orb.mesh = om
+	var mat2 := StandardMaterial3D.new()
+	mat2.albedo_color = Color(0.85, 0.35, 1.00)
+	mat2.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	orb.material_override = mat2
+	orb.position = Vector3(0.0, 0.0, -0.22)
+	_wand_root.add_child(orb)
+
 func _emit_initial_hp() -> void:
 	hp_changed.emit(hp, MAX_HP)
 
@@ -143,9 +174,10 @@ func _get_btype() -> int:
 	return SELECTABLE_BTYPES[selected_idx]
 
 func _toggle_mode() -> void:
-	_mode = (_mode + 1) % 3
+	_mode = (_mode + 1) % 4
 	_club_root.visible     = (_mode == 1)
 	_crossbow_root.visible = (_mode == 2)
+	_wand_root.visible     = (_mode == 3)
 	if _mode == 0:
 		_breaking    = false
 		_break_timer = 0.0
@@ -283,6 +315,8 @@ func _input(event: InputEvent) -> void:
 						_place_block()
 					elif _mode == 2:
 						_shoot_arrow()
+					elif _mode == 3:
+						_spawn_portal()
 			MOUSE_BUTTON_WHEEL_UP:
 				if event.pressed:
 					_select((selected_idx - 1 + SELECTABLE_BTYPES.size()) % SELECTABLE_BTYPES.size())
@@ -353,6 +387,32 @@ func _shoot_arrow() -> void:
 	var from : Vector3 = camera.global_position + dir * 0.8
 	arrow.call("setup", from, dir)
 	SoundManager.play_shoot()
+
+func _spawn_portal() -> void:
+	# 기존 입장 포탈 제거 (한 번에 하나만)
+	for p in get_tree().get_nodes_in_group("portals"):
+		if is_instance_valid(p) and not bool(p.get("_use_return")):
+			p.queue_free()
+	var portal_script := load("res://scripts/portal.gd")
+	var portal = portal_script.new()
+	get_parent().add_child(portal)
+	# 플레이어 앞 3m에 배치 (XZ 평면)
+	var fwd : Vector3 = -camera.global_transform.basis.z
+	fwd.y = 0.0
+	fwd   = fwd.normalized()
+	var ppos : Vector3 = global_position + fwd * 3.0
+	ppos.y = global_position.y
+	portal.global_position = ppos
+	portal.rotation.y      = rotation.y
+	portal.call("setup", Vector3(490.0, 2.0, 500.0), false)
+
+func _enter_portal(dest: Vector3, use_return: bool) -> void:
+	velocity = Vector3.ZERO
+	if use_return:
+		global_position = portal_return_pos
+	else:
+		portal_return_pos = global_position
+		global_position   = dest
 
 func _update_footstep(delta: float) -> void:
 	_step_timer -= delta

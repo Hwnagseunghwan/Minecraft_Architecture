@@ -32,7 +32,7 @@ func _ready() -> void:
 	add_child(ui)
 
 	# 석궁 연습장
-	_spawn_range()
+	_build_range_area()
 
 	# 시그널 연결
 	player.block_selected.connect(ui._on_block_selected)
@@ -43,28 +43,69 @@ func _ready() -> void:
 	player.player_died.connect(ui._on_player_died)
 	player.player_respawned.connect(ui._on_player_respawned)
 
-func _spawn_range() -> void:
-	# 석궁 연습장: 스폰(32,5,32) 기준 북동쪽 x=45 라인
-	# 표적 5개: 거리·높이 각각 다름
+func _build_range_area() -> void:
+	# 포탈 연습장: 메인 월드 밖 x=500, z=500 기준
+	var B : Vector3 = Vector3(500.0, 0.0, 500.0)
+
+	# 바닥
+	_range_solid(B + Vector3( 1.0, -0.5,   0.0), Vector3(34, 1, 34), Color(0.48, 0.46, 0.44))
+
+	# 벽 3면 (북·남·동) + 입구 서쪽 벽
+	_range_solid(B + Vector3( 1.0,  5.0, -17.5), Vector3(34, 12,  1), Color(0.56, 0.45, 0.35))
+	_range_solid(B + Vector3( 1.0,  5.0,  17.5), Vector3(34, 12,  1), Color(0.56, 0.45, 0.35))
+	_range_solid(B + Vector3(18.5,  5.0,   0.0), Vector3( 1, 12, 36), Color(0.50, 0.40, 0.30))
+	_range_solid(B + Vector3(-16.5, 5.0,   0.0), Vector3( 1, 12, 36), Color(0.56, 0.45, 0.35))
+
+	# 표적 10개 (연습장 구석구석 배치)
 	var target_script := preload("res://scripts/target.gd")
-
-	# [위치(x,z), 기둥높이]
-	var configs : Array = [
-		[Vector2(45, 52), 2],   # 근거리 낮음  (~22m)
-		[Vector2(45, 56), 2],   # 중거리 낮음  (~26m)
-		[Vector2(45, 60), 4],   # 중거리 높음  (~30m, 새 연습)
-		[Vector2(45, 48), 6],   # 근거리 높음  (~20m, 새 연습)
-		[Vector2(48, 54), 8],   # 고공 표적     (~24m, 최고 난이도)
+	var tconfigs : Array = [
+		# 원거리 타겟 벽 (x=513~516)
+		[B + Vector3(15.0, 2.0, -14.0), 2],  # 원거리 좌끝 낮음
+		[B + Vector3(15.0, 2.0,  -7.0), 5],  # 원거리 좌 높음
+		[B + Vector3(16.0, 2.0,   0.0), 8],  # 원거리 중앙 최고
+		[B + Vector3(15.0, 2.0,   7.0), 5],  # 원거리 우 높음
+		[B + Vector3(15.0, 2.0,  14.0), 2],  # 원거리 우끝 낮음
+		# 중거리 (x=505)
+		[B + Vector3( 5.0, 2.0, -13.0), 3],  # 중거리 좌측 모서리
+		[B + Vector3( 5.0, 2.0,  13.0), 3],  # 중거리 우측 모서리
+		[B + Vector3( 6.0, 2.0,   0.0), 6],  # 중거리 중앙 높음
+		# 근거리 (x=495)
+		[B + Vector3(-4.0, 2.0, -10.0), 4],  # 근거리 좌측
+		[B + Vector3(-4.0, 2.0,  10.0), 4],  # 근거리 우측
 	]
-
-	for cfg in configs:
-		var xz     : Vector2 = cfg[0]
+	for cfg in tconfigs:
+		var tpos   : Vector3 = cfg[0]
 		var pole_h : int     = cfg[1]
 		var t = target_script.new()
 		add_child(t)
 		t.call("build", pole_h)
-		t.global_position = Vector3(xz.x, 2.0, xz.y)
+		t.global_position = tpos
 
+	# 출구 포탈 (입구 쪽)
+	var portal_script := preload("res://scripts/portal.gd")
+	var exit_portal = portal_script.new()
+	add_child(exit_portal)
+	exit_portal.global_position = B + Vector3(-14.0, 2.0, 0.0)
+	exit_portal.call("setup", Vector3(32.0, 5.0, 32.0), true)
+
+func _range_solid(pos: Vector3, size: Vector3, color: Color) -> void:
+	var body := StaticBody3D.new()
+	var cs   := CollisionShape3D.new()
+	var sh   := BoxShape3D.new()
+	sh.size  = size
+	cs.shape = sh
+	body.add_child(cs)
+	var mi  := MeshInstance3D.new()
+	var bm  := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	mi.material_override = mat
+	body.add_child(mi)
+	body.position = pos
+	add_child(body)
 func _process(delta: float) -> void:
 	_time = fmod(_time + delta / DAY_LENGTH, 1.0)
 	_update_sky(_time)

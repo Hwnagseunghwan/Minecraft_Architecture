@@ -317,6 +317,9 @@ func _on_mode_changed(mode: int) -> void:
 		2:
 			_mode_label.text = "[ 전투-석궁 ]  우클릭:발사  F키: 전환"
 			_mode_label.add_theme_color_override("font_color", Color(1.0, 0.75, 0.20))
+		3:
+			_mode_label.text = "[ 포탈 지팩이 ]  우클릭:포탈 생성  F키: 전환"
+			_mode_label.add_theme_color_override("font_color", Color(0.80, 0.30, 1.00))
 
 func _on_block_selected(_idx: int, block_name: String) -> void:
 	_block_selector_label.text = "[ " + block_name + " ]"
