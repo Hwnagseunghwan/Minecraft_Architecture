@@ -303,7 +303,7 @@ func _physics_process(delta: float) -> void:
 
 func _update_footstep(delta: float) -> void:
 	_step_timer -= delta
-	var moving := abs(velocity.x) > 0.5 or abs(velocity.z) > 0.5
+	var moving : bool = absf(velocity.x) > 0.5 or absf(velocity.z) > 0.5
 	if moving and is_on_floor():
 		if _step_timer <= 0.0:
 			SoundManager.play_step()
