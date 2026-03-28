@@ -1,11 +1,13 @@
 extends Node3D
 
-const DAY_LENGTH : float = 120.0  # 낮+밤 1사이클 (초)
+const DAY_LENGTH : float = 600.0  # 낮+밤 1사이클 (초) — 낮 5분 + 밤 5분
 
 var _sun      : DirectionalLight3D
 var _sky_mat  : ProceduralSkyMaterial
 var _env      : Environment
 var _time     : float = 0.0  # 0.0 = 정오, 0.5 = 자정
+var _world    : Node3D = null
+var _player   : CharacterBody3D = null
 
 func _ready() -> void:
 	_setup_environment()
@@ -14,16 +16,17 @@ func _ready() -> void:
 
 	# 월드 생성
 	var world_script := preload("res://scripts/world.gd")
-	var world := world_script.new()
-	world.name = "World"
-	add_child(world)
+	_world = world_script.new()
+	_world.name = "World"
+	add_child(_world)
 
 	# 플레이어 생성
 	var player_scene := preload("res://scenes/Player.tscn")
-	var player := player_scene.instantiate()
-	player.world = world
-	add_child(player)
-	player.global_position = Vector3(32.0, 5.0, 32.0)
+	_player = player_scene.instantiate()
+	_player.world = _world
+	add_child(_player)
+	var spawn_y : float = _world.call("get_surface_y", 32, 32) + 10.0
+	_player.global_position = Vector3(32.0, spawn_y, 32.0)
 
 	# UI 생성
 	var ui_script := preload("res://scripts/ui.gd")
@@ -35,13 +38,13 @@ func _ready() -> void:
 	_build_range_area()
 
 	# 시그널 연결
-	player.block_selected.connect(ui._on_block_selected)
-	player.inventory_changed.connect(ui._on_inventory_changed)
-	player.mode_changed.connect(ui._on_mode_changed)
-	player.hp_changed.connect(ui._on_hp_changed)
-	player.hp_healed.connect(ui._on_hp_healed)
-	player.player_died.connect(ui._on_player_died)
-	player.player_respawned.connect(ui._on_player_respawned)
+	_player.block_selected.connect(ui._on_block_selected)
+	_player.inventory_changed.connect(ui._on_inventory_changed)
+	_player.mode_changed.connect(ui._on_mode_changed)
+	_player.hp_changed.connect(ui._on_hp_changed)
+	_player.hp_healed.connect(ui._on_hp_healed)
+	_player.player_died.connect(ui._on_player_died)
+	_player.player_respawned.connect(ui._on_player_respawned)
 
 func _build_range_area() -> void:
 	# 포탈 연습장: 메인 월드 밖 x=500, z=500 기준
@@ -86,7 +89,8 @@ func _build_range_area() -> void:
 	var exit_portal = portal_script.new()
 	add_child(exit_portal)
 	exit_portal.global_position = B + Vector3(-14.0, 2.0, 0.0)
-	exit_portal.call("setup", Vector3(32.0, 5.0, 32.0), true)
+	var home_y : float = _world.call("get_surface_y", 32, 32)
+	exit_portal.call("setup", Vector3(32.0, home_y, 32.0), true)
 
 func _range_solid(pos: Vector3, size: Vector3, color: Color) -> void:
 	var body := StaticBody3D.new()
@@ -109,6 +113,9 @@ func _range_solid(pos: Vector3, size: Vector3, color: Color) -> void:
 func _process(delta: float) -> void:
 	_time = fmod(_time + delta / DAY_LENGTH, 1.0)
 	_update_sky(_time)
+	# 플레이어 이동에 따라 청크 동적 로드/언로드
+	if _world != null and _player != null:
+		_world.update_chunks(_player.global_position)
 
 func _update_sky(t: float) -> void:
 	# t: 0=정오, 0.25=저녁, 0.5=자정, 0.75=새벽
@@ -165,29 +172,8 @@ func _setup_safety_floor() -> void:
 	var body := StaticBody3D.new()
 	var cs   := CollisionShape3D.new()
 	var sh   := BoxShape3D.new()
-	sh.size = Vector3(400, 1, 400)
+	sh.size = Vector3(10000, 1, 10000)
 	cs.shape = sh
 	body.add_child(cs)
-	body.position = Vector3(32, -2, 32)
+	body.position = Vector3(0, -2, 0)
 	add_child(body)
-	_setup_boundary_walls()
-
-func _setup_boundary_walls() -> void:
-	# 맵 64x64 경계에 투명 벽 (높이 30)
-	var walls : Array = [
-		[Vector3( 32.0, 15.0, -0.5), Vector3(66.0, 30.0,  1.0)],  # 북쪽
-		[Vector3( 32.0, 15.0, 64.5), Vector3(66.0, 30.0,  1.0)],  # 남쪽
-		[Vector3( -0.5, 15.0, 32.0), Vector3( 1.0, 30.0, 66.0)],  # 서쪽
-		[Vector3( 64.5, 15.0, 32.0), Vector3( 1.0, 30.0, 66.0)],  # 동쪽
-	]
-	for w in walls:
-		var wbody := StaticBody3D.new()
-		var wcs   := CollisionShape3D.new()
-		var wsh   := BoxShape3D.new()
-		var sz : Vector3 = w[1]
-		wsh.size = sz
-		wcs.shape = wsh
-		wbody.add_child(wcs)
-		var wp : Vector3 = w[0]
-		wbody.position = wp
-		add_child(wbody)

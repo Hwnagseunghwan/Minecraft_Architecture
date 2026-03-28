@@ -22,9 +22,10 @@ func _build_all() -> void:
 	_cache["die"]     = _make(0.55, _wave_die)
 	_cache["pickup"]  = _make(0.18, _wave_pickup)
 	_cache["swing"]   = _make(0.20, _wave_swing)
-	_cache["chicken"] = _make(0.26, _wave_chicken)
-	_cache["cow"]     = _make(0.50, _wave_cow)
-	_cache["dino"]    = _make(0.60, _wave_dino)
+	_cache["chicken"] = _make(0.32, _wave_chicken)
+	_cache["cow"]     = _make(0.90, _wave_cow)
+	_cache["dino"]    = _make(0.80, _wave_dino)
+	_cache["fish"]    = _make(0.35, _wave_fish)
 	_cache["shoot"]   = _make(0.18, _wave_shoot)
 
 func _make(dur: float, fn: Callable) -> AudioStreamWAV:
@@ -61,9 +62,10 @@ func play_pickup() -> void: _play("pickup", -2.0)
 func play_swing()  -> void: _play("swing",  -6.0)
 func play_shoot()  -> void: _play("shoot",  -3.0)
 func play_animal(t: int) -> void:
-	if   t == 0: _play("chicken", -4.0)
-	elif t == 1: _play("cow",     -3.0)
-	elif t == 4: _play("dino",     2.0)
+	if   t == 0: _play("chicken", -3.0)
+	elif t == 1: _play("cow",     -2.0)
+	elif t == 2: _play("fish",    -2.0)
+	elif t == 4: _play("dino",     3.0)
 
 # ── 파형 함수들 ───────────────────────────────────────
 func _wave_dig(n: int) -> PackedFloat32Array:
@@ -128,24 +130,31 @@ func _wave_swing(n: int) -> PackedFloat32Array:
 		s[i] = (sin(TAU * phase) * 0.35 + randf_range(-0.12, 0.12)) * e
 	return s
 
+# 닭: 꼬꼬 (고음 2연타)
 func _wave_chicken(n: int) -> PackedFloat32Array:
 	var s := PackedFloat32Array()
 	s.resize(n)
 	for i in range(n):
 		var t  : float = float(i) / float(RATE)
-		var e1 : float = exp(-t * 30.0) if t < 0.13 else 0.0
-		var e2 : float = exp(-(t - 0.15) * 30.0) if t >= 0.15 else 0.0
-		s[i] = sin(TAU * (880.0 + sin(TAU * 12.0 * t) * 60.0) * t) * (e1 + e2) * 0.55
+		var e1 : float = exp(-t * 45.0) if t < 0.12 else 0.0
+		var e2 : float = exp(-(t - 0.16) * 45.0) if t >= 0.16 and t < 0.28 else 0.0
+		var freq : float = 960.0 + sin(TAU * 20.0 * t) * 90.0
+		s[i] = sin(TAU * freq * t) * (e1 + e2) * 0.65
 	return s
 
+# 소: 음머 (저음, 피치 변화, 비브라토)
 func _wave_cow(n: int) -> PackedFloat32Array:
 	var s := PackedFloat32Array()
 	s.resize(n)
 	for i in range(n):
-		var t   : float = float(i) / float(RATE)
-		var e   : float = (1.0 - exp(-t * 6.0)) * exp(-t * 3.0)
-		var vib : float = sin(TAU * 4.0 * t) * 8.0
-		s[i] = sin(TAU * (115.0 + vib) * t) * e * 0.6
+		var t    : float = float(i) / float(RATE)
+		var e    : float = (1.0 - exp(-t * 5.0)) * exp(-t * 2.5)
+		var vib  : float = sin(TAU * 4.5 * t) * 10.0
+		var bend : float = 95.0 + sin(TAU * 0.9 * t) * 14.0 + vib
+		var h1   : float = sin(TAU * bend * t) * 0.50
+		var h2   : float = sin(TAU * bend * 2.0 * t) * 0.28
+		var h3   : float = sin(TAU * bend * 3.0 * t) * 0.12
+		s[i] = (h1 + h2 + h3) * e * 0.65
 	return s
 
 func _wave_shoot(n: int) -> PackedFloat32Array:
@@ -161,14 +170,28 @@ func _wave_shoot(n: int) -> PackedFloat32Array:
 		s[i] = thunk * 0.5 + whoosh
 	return s
 
+# 물고기: 첨벙 (짧은 충격 노이즈 + 공명)
+func _wave_fish(n: int) -> PackedFloat32Array:
+	var s := PackedFloat32Array()
+	s.resize(n)
+	for i in range(n):
+		var t       : float = float(i) / float(RATE)
+		var splash  : float = randf_range(-1.0, 1.0) * exp(-t * 28.0) * 0.75
+		var resonance : float = sin(TAU * 200.0 * t) * exp(-t * 18.0) * 0.35
+		s[i] = splash + resonance
+	return s
+
+# 공룡: 그르렁 (극저음 + 배음 + 거친 노이즈 + 떨림)
 func _wave_dino(n: int) -> PackedFloat32Array:
 	var s := PackedFloat32Array()
 	s.resize(n)
 	for i in range(n):
-		var t   : float = float(i) / float(RATE)
-		var e   : float = (1.0 - exp(-t * 4.0)) * exp(-t * 3.0)
-		var val : float = sin(TAU * 52.0 * t) * 0.45
-		val += sin(TAU * 104.0 * t) * 0.30
-		val += randf_range(-0.12, 0.12)
-		s[i] = val * e
+		var t       : float = float(i) / float(RATE)
+		var e       : float = (1.0 - exp(-t * 3.0)) * exp(-t * 2.0)
+		var tremolo : float = 0.65 + 0.35 * sin(TAU * 18.0 * t)
+		var growl   : float = sin(TAU * 44.0 * t) * 0.40
+		growl += sin(TAU * 88.0 * t) * 0.26
+		growl += sin(TAU * 132.0 * t) * 0.14
+		growl += randf_range(-0.25, 0.25)
+		s[i] = growl * e * tremolo
 	return s

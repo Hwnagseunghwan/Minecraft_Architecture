@@ -5,6 +5,8 @@ var _dest       : Vector3              = Vector3.ZERO
 var _use_return : bool                 = false  # true: 플레이어 귀환 좌표로 이동
 var _cooldown   : float                = 1.5
 var _inner_mat  : StandardMaterial3D   = null
+var _pending_body : Node3D             = null   # 대기 중인 플레이어
+const WAIT_TIME : float                = 3.0    # 진입/퇴장 대기 시간(초)
 
 func setup(dest: Vector3, use_return: bool = false) -> void:
 	_dest       = dest
@@ -16,6 +18,7 @@ func setup(dest: Vector3, use_return: bool = false) -> void:
 	_build_visual()
 	_build_collision()
 	body_entered.connect(_on_body_entered)
+	body_exited.connect(_on_body_exited)
 
 func _process(delta: float) -> void:
 	if _cooldown > 0.0:
@@ -75,6 +78,16 @@ func _build_collision() -> void:
 func _on_body_entered(body: Node3D) -> void:
 	if _cooldown > 0.0:
 		return
-	if body.has_method("_enter_portal"):
-		_cooldown = 2.0
-		body._enter_portal(_dest, _use_return)
+	if body.has_method("_enter_portal") and _pending_body == null:
+		_pending_body = body
+		get_tree().create_timer(WAIT_TIME).timeout.connect(_on_wait_done)
+
+func _on_body_exited(body: Node3D) -> void:
+	if body == _pending_body:
+		_pending_body = null
+
+func _on_wait_done() -> void:
+	if _pending_body != null:
+		_cooldown = 3.0
+		_pending_body._enter_portal(_dest, _use_return)
+		_pending_body = null

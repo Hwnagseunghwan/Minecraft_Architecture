@@ -43,6 +43,7 @@ var _break_timer : float    = 0.0
 var _break_pos   : Vector3i = Vector3i(-999, -999, -999)
 
 var _step_timer  : float    = 0.0   # 발걸음 간격 타이머
+var _float_timer : float    = 10.0  # 스폰 후 공중 부유 시간
 
 var _mode          : int    = 0      # 0=건축  1=몽둥이  2=석궁  3=포탈지팡이
 var _swinging      : bool   = false
@@ -228,8 +229,10 @@ func _respawn() -> void:
 	_dmg_timer   = 0.0
 	_heal_delay  = 0.0
 	_heal_timer  = 0.0
-	global_position = Vector3(32.0, 5.0, 32.0)
+	var sy : float = (world.call("get_surface_y", 32, 32) if world != null else 5.0) + 10.0
+	global_position = Vector3(32.0, sy, 32.0)
 	velocity     = Vector3.ZERO
+	_float_timer = 10.0
 	hp_changed.emit(hp, MAX_HP)
 	player_respawned.emit()
 
@@ -348,7 +351,10 @@ func _physics_process(delta: float) -> void:
 	if _is_dead:
 		return
 
-	if not is_on_floor():
+	if _float_timer > 0.0:
+		_float_timer -= delta
+		velocity.y = 0.0
+	elif not is_on_floor():
 		velocity.y -= GRAVITY * delta
 
 	var dir := Vector2.ZERO

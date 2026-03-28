@@ -370,12 +370,18 @@ func _physics_process(delta: float) -> void:
 		_timer = randf_range(2.5, 6.0)
 		_new_dir()
 
-	# 울음소리 (닭/소/공룡만, 물고기/새는 조용히)
+	# 울음소리
 	_sound_timer -= delta
 	if _sound_timer <= 0.0:
-		var interval := 8.0 if animal_type == DINO else randf_range(5.0, 12.0)
+		var interval : float
+		match animal_type:
+			CHICKEN: interval = randf_range(4.0,  8.0)
+			COW:     interval = randf_range(8.0,  15.0)
+			FISH:    interval = randf_range(20.0, 35.0)
+			DINO:    interval = randf_range(12.0, 20.0)
+			_:       interval = randf_range(10.0, 18.0)
 		_sound_timer = interval
-		if animal_type == CHICKEN or animal_type == COW or animal_type == DINO:
+		if animal_type == CHICKEN or animal_type == COW or animal_type == FISH or animal_type == DINO:
 			SoundManager.play_animal(animal_type)
 
 	if _floating:
