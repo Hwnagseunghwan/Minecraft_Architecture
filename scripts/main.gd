@@ -157,15 +157,28 @@ func _setup_environment() -> void:
 
 	_env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
 	_env.ambient_light_energy = 0.6
-	_env.tonemap_mode = Environment.TONE_MAPPER_ACES
+	_env.tonemap_mode         = Environment.TONE_MAPPER_ACES
+
+	# SSAO (주변광 차폐) – 깊이감 강화
+	_env.ssao_enabled = true
+	_env.ssao_radius   = 1.0
+	_env.ssao_intensity = 1.8
+
+	# 안개 – 원거리 자연스러운 페이드
+	_env.fog_enabled   = true
+	_env.fog_density   = 0.003
+	_env.fog_sky_affect = 0.3
+
 	we.environment = _env
 	add_child(we)
 
 func _setup_lighting() -> void:
 	_sun = DirectionalLight3D.new()
-	_sun.rotation_degrees = Vector3(-90, 30, 0)
-	_sun.light_energy = 1.4
-	_sun.shadow_enabled = true
+	_sun.rotation_degrees          = Vector3(-90, 30, 0)
+	_sun.light_energy              = 1.4
+	_sun.shadow_enabled            = true
+	_sun.directional_shadow_mode   = DirectionalLight3D.SHADOW_PARALLEL_4_SPLITS
+	_sun.directional_shadow_max_distance = 80.0
 	add_child(_sun)
 
 func _setup_safety_floor() -> void:
