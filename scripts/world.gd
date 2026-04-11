@@ -3,6 +3,7 @@ extends Node3D
 const CHUNK_SIZE  : int = 16
 const RENDER_DIST : int = 2
 const MAX_HEIGHT  : int = 14
+const MIN_DEPTH   : int = -999999  # 사실상 무한 깊이
 
 const BLOCK_GRASS    = 0
 const BLOCK_DIRT     = 1
@@ -17,6 +18,8 @@ const BLOCK_BRICK    = 9
 const BLOCK_CONCRETE = 10
 const BLOCK_WOOD     = 11
 const BLOCK_ROOF     = 12
+const BLOCK_SAND     = 13
+const BLOCK_CACTUS   = 14
 
 const BLOCK_COLORS : Dictionary = {
 	0: Color(0.38, 0.68, 0.22),
@@ -32,6 +35,8 @@ const BLOCK_COLORS : Dictionary = {
 	10: Color(0.75, 0.75, 0.75),
 	11: Color(0.55, 0.38, 0.18),
 	12: Color(0.28, 0.22, 0.16),
+	13: Color(0.85, 0.72, 0.42),
+	14: Color(0.15, 0.55, 0.18),
 }
 
 const LEAF_COLORS : Array = [
@@ -53,6 +58,11 @@ var _last_player_chunk : Vector2i   = Vector2i(-9999, -9999)
 var _animals_spawned   : bool       = false
 var _spawn_waterfall_done : bool    = false
 
+# 지하 블록 실시간 유지 (플레이어 주변 채움)
+var _last_underground_center : Vector3i = Vector3i(-9999, -9999, -9999)
+const UNDERGROUND_RADIUS : int = 3  # 플레이어 주변 반경
+var _mined_underground : Dictionary = {}  # 의도적으로 캔 위치 → 재생성 방지
+
 const WATER_TICK_INTERVAL : float = 0.4
 const WATER_SOURCE_LEVEL  : int   = 7
 
@@ -62,6 +72,22 @@ var _water_timer   : float      = 0.0
 var _terrain_nodes : Dictionary = {}  # chunk_key -> MeshInstance3D (부드러운 지형 시각 메시)
 
 const MESH_VARIANTS : int = 16
+
+# ── 생존 모드: 블록 드롭 아이템 ──────────────────────────
+const BTYPE_TO_ITEM : Dictionary = {
+	0: "Grass",  1: "Dirt",     2: "Stone",  3: "Log",    4: "Plank",
+	5: "Glass",  6: "White",    7: "Red",    9: "Brick",  10: "Concrete",
+	11: "Wood",  12: "Roof",    13: "Sand",  14: "Cactus"
+}
+const BTYPE_ITEM_COLOR : Dictionary = {
+	0:  Color(0.38, 0.68, 0.22), 1:  Color(0.50, 0.35, 0.20),
+	2:  Color(0.55, 0.55, 0.55), 3:  Color(0.35, 0.22, 0.10),
+	4:  Color(0.80, 0.65, 0.40), 5:  Color(0.75, 0.90, 1.00),
+	6:  Color(0.95, 0.95, 0.95), 7:  Color(0.80, 0.20, 0.20),
+	9:  Color(0.70, 0.30, 0.20), 10: Color(0.75, 0.75, 0.75),
+	11: Color(0.55, 0.38, 0.18), 12: Color(0.28, 0.22, 0.16),
+	13: Color(0.85, 0.72, 0.42), 14: Color(0.15, 0.55, 0.18),
+}
 
 func _ready() -> void:
 	_create_highlight()
@@ -73,6 +99,27 @@ func _process(delta: float) -> void:
 		_water_timer = 0.0
 		_water_tick()
 
+# 플레이어 위치 기반 지하 블록 실시간 유지
+func fill_underground_around(player_pos: Vector3) -> void:
+	if player_pos.y >= 0:
+		return
+	var center := Vector3i(roundi(player_pos.x), roundi(player_pos.y), roundi(player_pos.z))
+	if center == _last_underground_center:
+		return
+	_last_underground_center = center
+	var R := UNDERGROUND_RADIUS
+	for dx in range(-R, R + 1):
+		for dz in range(-R, R + 1):
+			for dy in range(-1, R + 1):
+				var pos := center + Vector3i(dx, dy, dz)
+				# 지상(y≥0), 이미 블록 있음, 의도적으로 캔 위치는 건너뜀
+				if pos.y >= 0 or _blocks.has(pos) or _mined_underground.has(pos):
+					continue
+				var chunk := _pos_to_chunk(pos.x, pos.z)
+				if not _loaded_chunks.has(_chunk_key(chunk.x, chunk.y)):
+					continue
+				_place(pos, BLOCK_STONE)
+
 # ── 청크 시스템 ────────────────────────────────────────
 func _chunk_key(cx: int, cz: int) -> String:
 	return str(cx) + "," + str(cz)
@@ -80,15 +127,39 @@ func _chunk_key(cx: int, cz: int) -> String:
 func _pos_to_chunk(x: int, z: int) -> Vector2i:
 	return Vector2i(floori(float(x) / float(CHUNK_SIZE)), floori(float(z) / float(CHUNK_SIZE)))
 
+# ── 바이옴 시스템 ──────────────────────────────────────
+# 0.0 = 완전 초원, 1.0 = 완전 사막 (노이즈 기반)
+func _biome_value(x: int, z: int) -> float:
+	var fx := float(x)
+	var fz := float(z)
+	var n  := sin(fx * 0.011 + 0.70) * cos(fz * 0.013 + 1.30) * 0.50
+	n      += sin(fx * 0.023 + fz * 0.017 + 2.10) * 0.30
+	n      += cos(fx * 0.007 - fz * 0.009 + 0.50) * 0.20
+	return clampf(n * 0.5 + 0.5, 0.0, 1.0)
+
+func _is_desert(x: int, z: int) -> bool:
+	return _biome_value(x, z) > 0.58
+
 func _terrain_height(x: int, z: int) -> int:
 	var fx := float(x)
 	var fz := float(z)
+	if _is_desert(x, z):
+		# 사막: 완만한 언덕 + 랜덤 고저
+		var h := sin(fx * 0.05) * cos(fz * 0.06) * 3.5
+		h     += sin(fx * 0.11 + fz * 0.09) * 1.8
+		h     += sin(fx * 0.23 + fz * 0.19) * 0.7
+		h     += cos(fx * 0.07 - fz * 0.08 + 1.3) * 1.2
+		return 1 + int(absf(h))
 	var h  := sin(fx * 0.07) * cos(fz * 0.09) * 3.5
 	h      += sin(fx * 0.13 + 1.2) * cos(fz * 0.11 + 0.8) * 2.0
 	h      += sin(fx * 0.21 + fz * 0.17) * 1.0
 	return 1 + int(absf(h))
 
 func _is_water_at(x: int, z: int) -> bool:
+	if _is_desert(x, z):
+		# 사막엔 물 없음 (오아시스만 드물게)
+		var fx := float(x); var fz := float(z)
+		return sin(fx * 0.18 + 4.1) * sin(fz * 0.16 + 2.7) > 0.90
 	var fx := float(x)
 	var fz := float(z)
 	return sin(fx * 0.05 + 1.3) * sin(fz * 0.07 + 0.6) > 0.72
@@ -96,6 +167,11 @@ func _is_water_at(x: int, z: int) -> bool:
 func _has_tree(x: int, z: int) -> bool:
 	var h := absf(sin(float(x * 73 + z * 127) * 0.00731))
 	return h > 0.9995 and not _is_water_at(x, z)
+
+func _has_cactus(x: int, z: int) -> bool:
+	if _is_water_at(x, z): return false
+	var h := absf(sin(float(x * 53 + z * 97) * 0.00831))
+	return h > 0.9996
 
 func _generate_chunk(cx: int, cz: int) -> void:
 	var key := _chunk_key(cx, cz)
@@ -111,15 +187,30 @@ func _generate_chunk(cx: int, cz: int) -> void:
 			if _is_water_at(wx, wz):
 				_place_water_source(Vector3i(wx, 0, wz))
 			else:
-				var top := _terrain_height(wx, wz)
+				var top     := _terrain_height(wx, wz)
+				var desert  := _is_desert(wx, wz)
 				for y in range(top + 1):
 					var btype : int
-					if y == top:       btype = BLOCK_GRASS
-					elif y == top - 1: btype = BLOCK_DIRT
-					else:              btype = BLOCK_STONE
+					if y == top:
+						btype = BLOCK_SAND if desert else BLOCK_GRASS
+					elif y == top - 1:
+						btype = BLOCK_SAND if desert else BLOCK_DIRT
+					else:
+						btype = BLOCK_STONE
 					_place(Vector3i(wx, y, wz), btype, Color.TRANSPARENT, true)
-				if _has_tree(wx, wz):
-					_place_tree(wx, top, wz)
+				if desert:
+					if _has_cactus(wx, wz):
+						_place_cactus(wx, top + 1, wz)
+				else:
+					if _has_tree(wx, wz):
+						_place_tree(wx, top, wz)
+	# 사막 청크에 7% 확률로 피라미드 (결정론적 시드)
+	var center_x2 := bx + CHUNK_SIZE / 2
+	var center_z2 := bz + CHUNK_SIZE / 2
+	if _is_desert(center_x2, center_z2) and not _is_water_at(center_x2, center_z2):
+		var pseed := absi(cx * 13337 + cz * 7919 + cx * cz * 31)
+		if pseed % 100 < 1:
+			_place_pyramid(center_x2, _terrain_height(center_x2, center_z2) + 1, center_z2)
 	_generate_terrain_visual(cx, cz)
 	_spawn_animals_in_chunk(cx, cz)
 	_try_place_waterfall_in_chunk(cx, cz)
@@ -308,22 +399,53 @@ func _water_tick() -> void:
 	_water_levels = new_levels
 
 # ── 부드러운 지형 시각 메시 ────────────────────────
+# 실제 블록 데이터 기반 시각 높이 (채굴 반영)
+func _visual_surface_y(wx: int, wz: int) -> float:
+	if _is_water_at(wx, wz):
+		return 0.42
+	var orig_top := _terrain_height(wx, wz)
+	var chunk := _pos_to_chunk(wx, wz)
+	if not _loaded_chunks.has(_chunk_key(chunk.x, chunk.y)):
+		return float(orig_top) + 0.52  # 미로드 청크: 공식 그대로
+	for y in range(orig_top, -1, -1):
+		if _blocks.has(Vector3i(wx, y, wz)):
+			return float(y) + 0.52
+	return float(orig_top) - 0.48  # 모든 블록 제거 시 구멍
+
 func _terrain_normal(x: int, z: int) -> Vector3:
-	var hl := float(_terrain_height(x-1, z) if not _is_water_at(x-1, z) else _terrain_height(x, z))
-	var hr := float(_terrain_height(x+1, z) if not _is_water_at(x+1, z) else _terrain_height(x, z))
-	var hd := float(_terrain_height(x, z-1) if not _is_water_at(x, z-1) else _terrain_height(x, z))
-	var hu := float(_terrain_height(x, z+1) if not _is_water_at(x, z+1) else _terrain_height(x, z))
+	var hl := _visual_surface_y(x-1, z)
+	var hr := _visual_surface_y(x+1, z)
+	var hd := _visual_surface_y(x,   z-1)
+	var hu := _visual_surface_y(x,   z+1)
 	return Vector3(hl - hr, 2.0, hd - hu).normalized()
 
 func _terrain_vertex_color(normal: Vector3, x: int, z: int) -> Color:
 	var noise := _vert_hash(x * 73 + z * 127, 0) * 0.08 - 0.04
+	var bv    := _biome_value(x, z)
 	var slope := normal.y
-	if slope > 0.88:
-		return Color(0.22 + noise, 0.50 + noise, 0.15 + noise)  # 잔딸
-	elif slope > 0.65:
-		return Color(0.38 + noise, 0.26 + noise, 0.14 + noise)  # 흙
+	if bv > 0.58:
+		# 사막: 모래 계열
+		if slope > 0.75:
+			return Color(0.88 + noise, 0.74 + noise, 0.44 + noise)  # 모래
+		else:
+			return Color(0.70 + noise, 0.58 + noise, 0.36 + noise)  # 사암
+	elif bv > 0.42:
+		# 전환 구역: 두 바이옴 색 블렌딩
+		var t   := (bv - 0.42) / 0.16
+		var gc  := Color(0.22 + noise, 0.50 + noise, 0.15 + noise) if slope > 0.88 \
+					else Color(0.38 + noise, 0.26 + noise, 0.14 + noise) if slope > 0.65 \
+					else Color(0.46 + noise, 0.44 + noise, 0.40 + noise)
+		var dc  := Color(0.88 + noise, 0.74 + noise, 0.44 + noise) if slope > 0.75 \
+					else Color(0.70 + noise, 0.58 + noise, 0.36 + noise)
+		return gc.lerp(dc, t)
 	else:
-		return Color(0.46 + noise, 0.44 + noise, 0.40 + noise)  # 돌
+		# 초원: 기존 색
+		if slope > 0.88:
+			return Color(0.22 + noise, 0.50 + noise, 0.15 + noise)  # 잔디
+		elif slope > 0.65:
+			return Color(0.38 + noise, 0.26 + noise, 0.14 + noise)  # 흙
+		else:
+			return Color(0.46 + noise, 0.44 + noise, 0.40 + noise)  # 돌
 
 func _generate_terrain_visual(cx: int, cz: int) -> void:
 	var bx  := cx * CHUNK_SIZE
@@ -346,11 +468,11 @@ func _generate_terrain_visual(cx: int, cz: int) -> void:
 			   _is_water_at(wx, wz+1) and _is_water_at(wx+1, wz+1):
 				continue
 
-			# 물 위치 꼭짓점은 해수면(y=0.42)으로 내려 육지-물 경계를 부드럽게 연결
-			var h00 := 0.42 if _is_water_at(wx,   wz)   else float(_terrain_height(wx,   wz))   + 0.52
-			var h10 := 0.42 if _is_water_at(wx+1, wz)   else float(_terrain_height(wx+1, wz))   + 0.52
-			var h01 := 0.42 if _is_water_at(wx,   wz+1) else float(_terrain_height(wx,   wz+1)) + 0.52
-			var h11 := 0.42 if _is_water_at(wx+1, wz+1) else float(_terrain_height(wx+1, wz+1)) + 0.52
+			# 채굴 반영 높이 (블록 데이터 기반)
+			var h00 := _visual_surface_y(wx,   wz)
+			var h10 := _visual_surface_y(wx+1, wz)
+			var h01 := _visual_surface_y(wx,   wz+1)
+			var h11 := _visual_surface_y(wx+1, wz+1)
 
 			var v00 := Vector3(float(wx),   h00, float(wz))
 			var v10 := Vector3(float(wx+1), h10, float(wz))
@@ -523,6 +645,8 @@ func _get_variation(btype: int) -> float:
 		BLOCK_CONCRETE: return 0.06
 		BLOCK_WOOD:     return 0.11
 		BLOCK_ROOF:     return 0.08
+		BLOCK_SAND:     return 0.06
+		BLOCK_CACTUS:   return 0.08
 		_:              return 0.05
 
 func _get_mat(btype: int) -> Material:
@@ -678,6 +802,8 @@ func _make_node(btype: int, color_override: Color = Color.TRANSPARENT, pos: Vect
 			mi.mesh = _make_leaf_mesh(color_override, leaf_seed)
 		elif btype == BLOCK_GRASS and color_override == Color.TRANSPARENT:
 			mi.mesh = _get_grass_mesh()
+		elif btype == BLOCK_CACTUS:
+			mi.mesh = _make_cactus_mesh()
 		elif btype == BLOCK_GLASS or btype == BLOCK_WATER:
 			var bm := BoxMesh.new()
 			bm.size = Vector3.ONE
@@ -705,6 +831,11 @@ func _place(pos: Vector3i, btype: int, color_override: Color = Color.TRANSPARENT
 	_blocks[pos] = node
 
 # ── 공개 API ──────────────────────────────────────────
+func get_block_type(pos: Vector3i) -> int:
+	if not _blocks.has(pos):
+		return -1
+	return _blocks[pos].get_meta("btype", -1)
+
 func get_surface_y(x: int, z: int) -> float:
 	if _is_water_at(x, z):
 		return 2.0
@@ -716,10 +847,12 @@ func set_highlight(pos: Vector3i, show: bool) -> void:
 		_highlight.position = Vector3(pos.x, pos.y, pos.z)
 
 func place_block(pos: Vector3i, btype: int) -> bool:
-	if pos.y < 0 or pos.y > MAX_HEIGHT:
+	if pos.y > MAX_HEIGHT:
 		return false
 	if btype == BLOCK_WATER:
 		return false
+	if _blocks.has(pos):
+		return false  # 이미 블록이 있으면 설치 불가
 	# 물 소스 위에 블록을 놓으면 소스 제거 → CA가 주변 물도 자연스럽게 줄어들게 함
 	_water_sources.erase(pos)
 	_water_levels.erase(pos)
@@ -730,13 +863,78 @@ func remove_block(pos: Vector3i) -> bool:
 	if not _blocks.has(pos):
 		return false
 	var node : Node3D = _blocks[pos]
-	if node.get_meta("btype") == BLOCK_WATER:
+	var btype : int = node.get_meta("btype")
+	if btype == BLOCK_WATER:
 		return false
-	if node.get_meta("is_terrain", false):
-		return false
+	var is_terrain : bool = node.get_meta("is_terrain", false)
 	node.queue_free()
 	_blocks.erase(pos)
+	_drop_block_item(pos, btype)
+	# 지하 위치면 채굴 기록 (fill이 다시 채우지 않도록)
+	if pos.y < 0:
+		_mined_underground[pos] = true
+	# 지형 블록 제거 시 청크 시각 메시 재생성 (채굴 구멍 반영)
+	if is_terrain:
+		var chunk := _pos_to_chunk(pos.x, pos.z)
+		_generate_terrain_visual(chunk.x, chunk.y)
+	# 채굴 시 주변 지하 블록 자동 생성 (깊이 -100까지)
+	if pos.y > MIN_DEPTH:
+		_ensure_underground_block(Vector3i(pos.x,     pos.y - 1, pos.z))
+		_ensure_underground_block(Vector3i(pos.x + 1, pos.y,     pos.z))
+		_ensure_underground_block(Vector3i(pos.x - 1, pos.y,     pos.z))
+		_ensure_underground_block(Vector3i(pos.x,     pos.y,     pos.z + 1))
+		_ensure_underground_block(Vector3i(pos.x,     pos.y,     pos.z - 1))
 	return true
+
+# 지하 블록 지연 생성 (y < 0, y >= MIN_DEPTH 범위)
+func _ensure_underground_block(pos: Vector3i) -> void:
+	if pos.y >= 0:
+		return
+	if _blocks.has(pos) or _mined_underground.has(pos):
+		return
+	var chunk := _pos_to_chunk(pos.x, pos.z)
+	if not _loaded_chunks.has(_chunk_key(chunk.x, chunk.y)):
+		return
+	_place(pos, BLOCK_STONE)
+
+# ── 피라미드 ───────────────────────────────────────────
+func _place_pyramid(cx: int, base_y: int, cz: int) -> void:
+	const HALF   : int = 5   # 기저 반폭 → 11×11 사이즈
+	const LAYERS : int = 6   # 6층
+	for layer in range(LAYERS):
+		var y    := base_y + layer
+		if y > MAX_HEIGHT:
+			break
+		var half := HALF - layer
+		for dx in range(-half, half + 1):
+			for dz in range(-half, half + 1):
+				var pos := Vector3i(cx + dx, y, cz + dz)
+				if not _blocks.has(pos):
+					_place(pos, BLOCK_SAND)
+	# 입구: 남쪽 기저 중앙 2칸을 뚫어 내부 진입 가능
+	var entrance_x := cx
+	var entrance_z := cz + HALF
+	for ey in range(base_y, base_y + 2):
+		if ey <= MAX_HEIGHT and _blocks.has(Vector3i(entrance_x, ey, entrance_z)):
+			_blocks[Vector3i(entrance_x, ey, entrance_z)].queue_free()
+			_blocks.erase(Vector3i(entrance_x, ey, entrance_z))
+	# 내부 바닥: 벽돌 (3×3)
+	for idx in range(-1, 2):
+		for idz in range(-1, 2):
+			var fp := Vector3i(cx + idx, base_y - 1, cz + idz)
+			if not _blocks.has(fp):
+				_place(fp, BLOCK_BRICK)
+
+func _drop_block_item(pos: Vector3i, btype: int) -> void:
+	if not BTYPE_TO_ITEM.has(btype):
+		return
+	var item_script := load("res://scripts/item.gd")
+	var item = item_script.new()
+	get_parent().add_child(item)
+	item.global_position = Vector3(float(pos.x) + 0.5, float(pos.y) + 0.8, float(pos.z) + 0.5)
+	var iname : String = BTYPE_TO_ITEM[btype]
+	var col   : Color  = BTYPE_ITEM_COLOR.get(btype, Color.WHITE)
+	item.call("setup", iname, col)
 
 func reset_world() -> void:
 	var keys := _loaded_chunks.keys().duplicate()
@@ -746,6 +944,8 @@ func reset_world() -> void:
 	_last_player_chunk = Vector2i(-9999, -9999)
 	_animals_spawned   = false
 	_spawn_waterfall_done = false
+	_mined_underground.clear()
+	_last_underground_center = Vector3i(-9999, -9999, -9999)
 	_water_sources.clear()
 	_water_levels.clear()
 	_water_timer = 0.0
@@ -774,6 +974,90 @@ func _place_tree(x: int, base_y: int, z: int) -> void:
 				_place(Vector3i(lx, top + 1, lz), BLOCK_GRASS, _leaf_color(lx, top + 1, lz))
 	if top + 2 <= MAX_HEIGHT:
 		_place(Vector3i(x, top + 2, z), BLOCK_GRASS, _leaf_color(x, top + 2, z))
+
+# ── 선인장 메시 ────────────────────────────────────────
+func _make_cactus_mesh() -> ArrayMesh:
+	var st  := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var mat := StandardMaterial3D.new()
+	mat.vertex_color_use_as_albedo = true
+	mat.cull_mode = BaseMaterial3D.CULL_DISABLED
+	st.set_material(mat)
+
+	var s         := 0.32           # 반폭 (0.64 × 0.64 — 일반 블록보다 좁음)
+	var c_light   := Color(0.18, 0.65, 0.22)  # 밝은 리브
+	var c_dark    := Color(0.09, 0.38, 0.12)  # 어두운 홈
+	var c_top     := Color(0.24, 0.78, 0.26)  # 윗면
+	var c_bot     := Color(0.07, 0.30, 0.09)  # 아랫면
+	var c_spine   := Color(0.82, 0.78, 0.68)  # 가시 색
+
+	# 윗면
+	st.set_normal(Vector3.UP)
+	_add_quad(st, c_top, Vector3.UP,
+		Vector3(-s, 0.5,-s), Vector3(s, 0.5,-s),
+		Vector3( s, 0.5, s), Vector3(-s, 0.5, s))
+
+	# 아랫면
+	st.set_normal(Vector3.DOWN)
+	_add_quad(st, c_bot, Vector3.DOWN,
+		Vector3(-s,-0.5, s), Vector3(s,-0.5, s),
+		Vector3( s,-0.5,-s), Vector3(-s,-0.5,-s))
+
+	# 4개 측면: 4단 리브(밝/어두 교대) + 가시 점
+	const SEGS : int = 4
+	var sides := [
+		[Vector3(0,0,1),  [Vector3(-s,-0.5,s), Vector3(s,-0.5,s), Vector3(s,0.5,s), Vector3(-s,0.5,s)]],
+		[Vector3(0,0,-1), [Vector3(s,-0.5,-s), Vector3(-s,-0.5,-s), Vector3(-s,0.5,-s), Vector3(s,0.5,-s)]],
+		[Vector3(1,0,0),  [Vector3(s,-0.5,s),  Vector3(s,-0.5,-s),  Vector3(s,0.5,-s),  Vector3(s,0.5,s)]],
+		[Vector3(-1,0,0), [Vector3(-s,-0.5,-s),Vector3(-s,-0.5,s),  Vector3(-s,0.5,s),  Vector3(-s,0.5,-s)]],
+	]
+	for side in sides:
+		var nrm : Vector3 = side[0]
+		var vv  : Array   = side[1]
+		# bl=vv[0], br=vv[1], tr=vv[2], tl=vv[3]
+		st.set_normal(nrm)
+		for i in range(SEGS):
+			var y0 : float = -0.5 + float(i) / SEGS
+			var y1 : float = y0 + 1.0 / SEGS
+			var c  : Color = c_light if i % 2 == 0 else c_dark
+			_add_quad(st, c, nrm,
+				Vector3(vv[0].x, y0, vv[0].z),
+				Vector3(vv[1].x, y0, vv[1].z),
+				Vector3(vv[2].x, y1, vv[2].z),
+				Vector3(vv[3].x, y1, vv[3].z))
+		# 가시: 리브 경계마다 작은 돌기
+		for i in range(1, SEGS):
+			var gy  : float = -0.5 + float(i) / SEGS
+			var mid : Vector3 = (vv[0] + vv[1]) * 0.5
+			var sx  := nrm.x * 0.06;  var sz := nrm.z * 0.06
+			# 가시 (작은 삼각형 2개)
+			var sp := Vector3(mid.x + sx, gy, mid.z + sz)
+			var al := Vector3(vv[0].x, gy + 0.04, vv[0].z)
+			var ar := Vector3(vv[1].x, gy + 0.04, vv[1].z)
+			var bl2 := Vector3(vv[0].x, gy - 0.04, vv[0].z)
+			var br2 := Vector3(vv[1].x, gy - 0.04, vv[1].z)
+			st.set_normal(nrm)
+			st.set_color(c_spine)
+			st.add_vertex(al); st.add_vertex(sp); st.add_vertex(ar)
+			st.add_vertex(bl2); st.add_vertex(sp); st.add_vertex(br2)
+
+	var mesh := ArrayMesh.new()
+	st.commit(mesh)
+	return mesh
+
+# ── 선인장 ─────────────────────────────────────────────
+func _place_cactus(x: int, base_y: int, z: int) -> void:
+	var height := 2 + (absi(x * 13 + z * 7) % 2)  # 2~3 블록
+	for y in range(base_y, base_y + height):
+		if y <= MAX_HEIGHT:
+			_place(Vector3i(x, y, z), BLOCK_CACTUS)
+	# 팔 (중간 높이에 좌우로 짧은 돌기)
+	var arm_y := base_y + 1
+	if arm_y <= MAX_HEIGHT and height >= 2:
+		if absi(x * 31 + z * 17) % 2 == 0:
+			_place(Vector3i(x + 1, arm_y, z), BLOCK_CACTUS)
+		else:
+			_place(Vector3i(x - 1, arm_y, z), BLOCK_CACTUS)
 
 # ── 균열 텍스처 ───────────────────────────────────────
 var _crack_textures : Array[ImageTexture] = []

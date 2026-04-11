@@ -116,6 +116,8 @@ func _process(delta: float) -> void:
 	# 플레이어 이동에 따라 청크 동적 로드/언로드
 	if _world != null and _player != null:
 		_world.update_chunks(_player.global_position)
+		# 지하 블록 실시간 유지 (플레이어가 지하에 있을 때)
+		_world.fill_underground_around(_player.global_position)
 
 func _update_sky(t: float) -> void:
 	# t: 0=정오, 0.25=저녁, 0.5=자정, 0.75=새벽
@@ -188,5 +190,5 @@ func _setup_safety_floor() -> void:
 	sh.size = Vector3(10000, 1, 10000)
 	cs.shape = sh
 	body.add_child(cs)
-	body.position = Vector3(0, -2, 0)
+	body.position = Vector3(0, -999999, 0)  # 사실상 무한 지하 지원을 위해 안전 바닥 제거
 	add_child(body)

@@ -8,6 +8,20 @@ const ITEM_NAMES_KR : Dictionary = {
 	"RawFish":      "생선",
 	"Egg":          "달걀",
 	"DinosaurClaw": "공룡발톱",
+	"Grass":        "잔디",
+	"Dirt":         "흙",
+	"Stone":        "돌",
+	"Log":          "원목",
+	"Plank":        "판자",
+	"Glass":        "유리",
+	"White":        "흰블록",
+	"Red":          "빨간블록",
+	"Brick":        "벽돌",
+	"Concrete":     "콘크리트",
+	"Wood":         "나무",
+	"Roof":         "지붕",
+	"Sand":         "모래",
+	"Cactus":       "선인장",
 }
 
 const HOTBAR_SLOTS : int = 9
@@ -174,7 +188,7 @@ func _build() -> void:
 
 	# 조작 도움말
 	var help := Label.new()
-	help.text = "WASD:이동  SPACE:점프  좌클릭(꾹):블록제거  우클릭:블록배치/공격  휠/1~8:블록선택  R:초기화  ESC:커서"
+	help.text = "WASD:이동  SPACE:점프  좌클릭(꾹):채굴→아이템드롭  우클릭:설치(인벤토리소모)  F:전투모드  휠/1~8:블록선택  R:초기화  ESC:커서"
 	help.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	help.position = Vector2(10, 10)
 	help.add_theme_font_size_override("font_size", 13)

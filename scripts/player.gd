@@ -4,7 +4,18 @@ const SPEED      = 5.0
 const JUMP_VEL   = 6.5
 const GRAVITY    = 20.0
 const MOUSE_SENS = 0.003
-const BREAK_TIME : float = 1.5
+# 블록 종류별 채굴 시간 (생존 모드)
+const BREAK_TIME_DEFAULT : float = 1.5
+const BREAK_TIMES : Dictionary = {
+	0: 1.0,  # Grass
+	1: 1.2,  # Dirt
+	2: 3.0,  # Stone (느림)
+	3: 2.0,  # Log
+	4: 1.5,  # Plank
+	5: 1.5,  # Glass
+	13: 0.8, # Sand (빠름)
+	14: 0.6, # Cactus (빠름)
+}
 
 const ITEM_DROP_COLORS : Dictionary = {
 	"Feather":      Color(0.95, 0.93, 0.88),
@@ -14,12 +25,26 @@ const ITEM_DROP_COLORS : Dictionary = {
 	"RawFish":      Color(1.00, 0.50, 0.10),
 	"Egg":          Color(0.96, 0.92, 0.78),
 	"DinosaurClaw": Color(0.55, 0.55, 0.20),
+	"Grass":        Color(0.38, 0.68, 0.22),
+	"Dirt":         Color(0.50, 0.35, 0.20),
+	"Stone":        Color(0.55, 0.55, 0.55),
+	"Log":          Color(0.35, 0.22, 0.10),
+	"Plank":        Color(0.80, 0.65, 0.40),
+	"Glass":        Color(0.75, 0.90, 1.00),
+	"White":        Color(0.95, 0.95, 0.95),
+	"Red":          Color(0.80, 0.20, 0.20),
+	"Brick":        Color(0.70, 0.30, 0.20),
+	"Concrete":     Color(0.75, 0.75, 0.75),
+	"Wood":         Color(0.55, 0.38, 0.18),
+	"Roof":         Color(0.28, 0.22, 0.16),
+	"Sand":         Color(0.85, 0.72, 0.42),
+	"Cactus":       Color(0.15, 0.55, 0.18),
 }
 
-const SELECTABLE_BTYPES : Array[int] = [0,1,2,3,4,5,6,7,9,10,11,12]
+const SELECTABLE_BTYPES : Array[int] = [0,1,2,3,4,5,6,7,9,10,11,12,13]
 const BLOCK_NAMES : Array[String] = [
 	"Grass","Dirt","Stone","Log","Plank","Glass","White","Red",
-	"Brick","Concrete","Wood","Roof"
+	"Brick","Concrete","Wood","Roof","Sand"
 ]
 
 # ── 체력 ───────────────────────────────────────────────
@@ -435,12 +460,10 @@ func _get_target() -> Dictionary:
 		return {}
 	var hit    := ray_cast.get_collision_point()
 	var normal := ray_cast.get_collision_normal()
-	var bp := Vector3i(
-		int(floor(hit.x - normal.x * 0.5)),
-		int(floor(hit.y - normal.y * 0.5)),
-		int(floor(hit.z - normal.z * 0.5))
-	)
-	var pp := bp + Vector3i(int(round(normal.x)), int(round(normal.y)), int(round(normal.z)))
+	# 블록은 정수 위치를 중심으로 저장 → 법선 방향으로 0.001 이동 후 round()
+	var inside := hit - normal * 0.001
+	var bp := Vector3i(roundi(inside.x), roundi(inside.y), roundi(inside.z))
+	var pp := bp + Vector3i(roundi(normal.x), roundi(normal.y), roundi(normal.z))
 	return {"block": bp, "place": pp}
 
 func _update_highlight() -> void:
@@ -462,8 +485,10 @@ func _update_breaking(delta: float) -> void:
 		_break_pos = bp
 		_break_timer = 0.0
 	_break_timer += delta
-	world.set_crack(_break_pos, _break_timer / BREAK_TIME)
-	if _break_timer >= BREAK_TIME:
+	var btype_at : int = world.get_block_type(_break_pos)
+	var break_time : float = BREAK_TIMES.get(btype_at, BREAK_TIME_DEFAULT)
+	world.set_crack(_break_pos, _break_timer / break_time)
+	if _break_timer >= break_time:
 		_breaking    = false
 		_break_timer = 0.0
 		world.set_crack(Vector3i.ZERO, 0.0)
@@ -496,5 +521,13 @@ func _place_block() -> void:
 	var py1 := py0 + 1
 	if pp.x == px and pp.z == pz and (pp.y == py0 or pp.y == py1):
 		return
+	# 생존 모드: 인벤토리에 해당 블록 아이템이 있어야 설치 가능
+	var iname : String = BLOCK_NAMES[selected_idx]
+	if not inventory.has(iname) or inventory[iname] <= 0:
+		return
 	if world.place_block(pp, _get_btype()):
+		inventory[iname] -= 1
+		if inventory[iname] <= 0:
+			inventory.erase(iname)
+		inventory_changed.emit(inventory)
 		SoundManager.play_place()
